@@ -180,6 +180,8 @@ class KFAC(optim.Optimizer):
     def _update_A(self):
         """Compute and update factor A for all modules"""
         for module in self.modules: 
+            if hvd.rank() == 0:
+                print('A Name: %s, shape: %s', module.name, self.m_a[module].shape)
             a = self.computeA(self.m_a[module], module)
             if self.steps == 0:
                 self._init_A(a, module)
@@ -188,6 +190,8 @@ class KFAC(optim.Optimizer):
     def _update_G(self):
         """Compute and update factor G for all modules"""
         for module in self.modules:
+            if hvd.rank() == 0:
+                print('G Name: %s, shape: %s', module.name, self.m_g[module].shape)
             g = self.computeG(self.m_g[module], module, self.batch_averaged)
             if self.steps == 0:
                 self._init_G(g, module)
