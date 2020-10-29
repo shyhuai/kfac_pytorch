@@ -111,6 +111,7 @@ args.log_dir = os.path.join(args.log_dir,
                             datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
 os.makedirs(args.log_dir, exist_ok=True)
 log_writer = SummaryWriter(args.log_dir) if verbose else None
+#log_writer = None
 
 # Horovod: limit # of CPU threads to be used per worker.
 torch.set_num_threads(4)

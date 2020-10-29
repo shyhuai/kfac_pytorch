@@ -7,7 +7,20 @@ import os
 import math
 import sys
 import warnings
+import numpy as np
 from distutils.version import LooseVersion
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+strhdlr = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s [%(filename)s:%(lineno)d] %(levelname)s %(message)s')
+strhdlr.setFormatter(formatter)
+logger.addHandler(strhdlr) 
+logfile = 'resnet50.log'
+hdlr = logging.FileHandler(logfile)
+logger.addHandler(hdlr) 
+
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -111,7 +124,7 @@ def initialize():
     torch.manual_seed(args.seed)
     args.verbose = 1 if hvd.rank() == 0 else 0
     if args.verbose:
-        print(args)
+        logger.info(args)
 
     if args.cuda:
         torch.cuda.set_device(hvd.local_rank())
@@ -272,18 +285,26 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
     train_sampler.set_epoch(epoch)
     train_loss = Metric('train_loss')
     train_accuracy = Metric('train_accuracy')
+    avg_time = 0.0
+    display=20
 
     if STEP_FIRST:
         for scheduler in lr_schedules:
             scheduler.step()
 
-    with tqdm(total=len(train_loader), 
-              desc='Epoch {:3d}/{:3d}'.format(epoch + 1, args.epochs),
-              disable=not args.verbose) as t:
+    #with tqdm(total=len(train_loader), 
+    #          desc='Epoch {:3d}/{:3d}'.format(epoch + 1, args.epochs),
+    #          disable=not args.verbose) as t:
+    profiling=True
+    iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[];uptimes=[]
+    if True:
         for batch_idx, (data, target) in enumerate(train_loader):
+            stime = time.time()
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
+            iotime = time.time()
+            iotimes.append(iotime-stime)
 
             for i in range(0, len(data), args.batch_size):
                 data_batch = data[i:i + args.batch_size]
@@ -298,16 +319,27 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
 
                 loss.div_(math.ceil(float(len(data)) / args.batch_size))
                 loss.backward()        
+            fwbwtime = time.time()
+            fwbwtimes.append(fwbwtime-iotime)
 
             optimizer.synchronize()
+            commtime = time.time()
+            commtimes.append(commtime-fwbwtime)
             if preconditioner is not None:
                 preconditioner.step(epoch=epoch)
+            kfactime = time.time()
+            kfactimes.append(kfactime-commtime)
             with optimizer.skip_synchronize():
                 optimizer.step()
-
-            t.set_postfix_str("loss: {:.4f}, acc: {:.2f}%".format(
-                    train_loss.avg.item(), 100*train_accuracy.avg.item()))
-            t.update(1)
+            updatetime=time.time()
+            uptimes.append(updatetime-kfactime)
+            avg_time += (time.time()-stime)
+            if batch_idx > 0 and batch_idx % display == 0:
+                if args.verbose:
+                    logger.info("[%d][%d] loss: %.4f, acc: %.2f, time: %.3f, speed: %.3f images/s" % (epoch, batch_idx, train_loss.avg.item(), 100*train_accuracy.avg.item(), avg_time/display, args.batch_size/(avg_time/display)))
+                    logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
+                    iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
+                avg_time = 0.0
 
     if not STEP_FIRST:
         for scheduler in lr_schedules:
@@ -354,7 +386,7 @@ if __name__ == '__main__':
     model, opt, preconditioner, lr_schedules, lrs, loss_func = get_model(args)
 
     if args.verbose:
-        print("MODEL:", args.model)
+        logger.info("MODEL: %s", args.model)
 
     start = time.time()
 
@@ -365,4 +397,4 @@ if __name__ == '__main__':
         save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     if args.verbose:
-        print("\nTraining time:", str(timedelta(seconds=time.time() - start)))
+        logger.info("\nTraining time: %s", str(timedelta(seconds=time.time() - start)))
