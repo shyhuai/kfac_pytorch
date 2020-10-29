@@ -30,7 +30,7 @@ def bench_ops(n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(2**10, 2**20, 1024) 
+    ns = range(64, 8192, 64) 
     #ns = ns+range(2**20, 2**29, 2**20) 
     #ns = range(2**20, 2**29, 2**20) 
     for n in ns:
