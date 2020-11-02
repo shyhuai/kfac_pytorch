@@ -8,6 +8,9 @@ from kfac.utils import update_running_avg
 from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
+import logging
+
+logger = logging.getLogger()
 
 class KFAC(optim.Optimizer):
     """KFAC Distributed Gradient Preconditioner
@@ -181,8 +184,14 @@ class KFAC(optim.Optimizer):
         """Compute and update factor A for all modules"""
         for module in self.modules: 
             a = self.computeA(self.m_a[module], module)
-            if hvd.rank() == 0:
-                print('A Name: %s, shape: %s', module, a.shape)
+            #if hvd.rank() == 0:
+            #    data = ComputeA.get_data(self.m_a[module], module)
+            #    d = data.view(-1)
+            #    indexes = d.nonzero().data.squeeze().view(-1)
+            #    nnz = indexes.numel() 
+            #    numel = d.numel()
+            #    sparsity = (numel-nnz)*1.0/numel
+            #    logger.info('vector A name: %s, shape: %s, sparsity: %f', module, data.shape, sparsity)
             if self.steps == 0:
                 self._init_A(a, module)
             update_running_avg(a, self.m_A[module], self.factor_decay)
@@ -191,8 +200,15 @@ class KFAC(optim.Optimizer):
         """Compute and update factor G for all modules"""
         for module in self.modules:
             g = self.computeG(self.m_g[module], module, self.batch_averaged)
-            if hvd.rank() == 0:
-                print('G Name: %s, shape: %s', module, g.shape)
+            #if hvd.rank() == 0:
+            #    data = ComputeG.get_data(self.m_g[module], module, self.batch_averaged)
+            #    d = data.view(-1)
+            #    indexes = d.nonzero().data.squeeze().view(-1)
+            #    nnz = indexes.numel() 
+            #    numel = d.numel()
+            #    sparsity = (numel-nnz)*1.0/numel
+            #    logger.info('vector G name: %s, shape: %s, sparsity: %f', module, data.shape, sparsity)
+                #logger.info('G Name: %s, shape: %s', module, g.shape)
             if self.steps == 0:
                 self._init_G(g, module)
             update_running_avg(g, self.m_G[module], self.factor_decay)

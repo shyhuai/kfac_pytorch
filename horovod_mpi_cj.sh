@@ -23,17 +23,16 @@ params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
     -x NCCL_DEBUG=INFO"
 fi
 
-#$MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
-#    -mca pml ob1 -mca btl ^openib \
-#    -mca btl_tcp_if_include 192.168.0.1/24 \
-#    -x NCCL_DEBUG=INFO  \
-#    -x NCCL_SOCKET_IFNAME=enp136s0f0,enp137s0f0 \
-#    -x NCCL_IB_DISABLE=1 \
-#    -x HOROVOD_CACHE_CAPACITY=0 \
+if [ "$dnn" = "resnet50" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_imagenet_resnet.py \
           --base-lr 0.0125 --epochs 55 --kfac-update-freq 1 --model $dnn  --lr-decay 25 35 40 45 50 \
           --train-dir /localdata/ILSVRC2012_dataset/train \
           --val-dir /localdata/ILSVRC2012_dataset/val
-
+else
+$MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
+    $params \
+    $PY examples/pytorch_cifar10_resnet.py \
+        --base-lr 0.1 --epochs 100 --kfac-update-freq 0 --model $dnn --lr-decay 35 75 90
+fi

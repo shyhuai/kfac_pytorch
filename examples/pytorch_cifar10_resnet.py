@@ -24,6 +24,16 @@ from utils import *
 
 import kfac
 
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+strhdlr = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s [%(filename)s:%(lineno)d] %(levelname)s %(message)s')
+strhdlr.setFormatter(formatter)
+logger.addHandler(strhdlr) 
+
+
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
 
 # Training settings
@@ -82,7 +92,7 @@ parser.add_argument('--distribute-layer-factors', action='store_true', default=F
 # Other Parameters
 parser.add_argument('--log-dir', default='./logs',
                     help='TensorBoard log directory')
-parser.add_argument('--dir', type=str, default='/tmp/cifar10', metavar='D',
+parser.add_argument('--dir', type=str, default='/datasets/cifar10', metavar='D',
                     help='directory to download cifar10 dataset to')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
@@ -96,8 +106,14 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 # Horovod: initialize library.
 hvd.init()
+
+logfile = './logs/cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
+hdlr = logging.FileHandler(logfile)
+logger.addHandler(hdlr) 
+
 torch.manual_seed(args.seed)
 verbose = True if hvd.rank() == 0 else False
+args.verbose = 1 if hvd.rank() == 0 else 0
 
 if args.cuda:
     torch.cuda.set_device(hvd.local_rank())
@@ -147,6 +163,8 @@ test_sampler = torch.utils.data.distributed.DistributedSampler(
         test_dataset, num_replicas=hvd.size(), rank=hvd.rank())
 test_loader = torch.utils.data.DataLoader(test_dataset, 
         batch_size=args.test_batch_size, sampler=test_sampler, **kwargs)
+
+
 
 if args.model.lower() == "resnet20":
     model = resnet.resnet20()
@@ -215,10 +233,14 @@ def train(epoch):
         if use_kfac:
             kfac_param_scheduler.step(epoch)
     
-    with tqdm(total=len(train_loader), 
-              desc='Epoch {:3d}/{:3d}'.format(epoch + 1, args.epochs),
-              disable=not verbose) as t:
+#    with tqdm(total=len(train_loader), 
+#              desc='Epoch {:3d}/{:3d}'.format(epoch + 1, args.epochs),
+#              disable=not verbose) as t:
+    display=20
+    avg_time = 0.0
+    if True:
         for batch_idx, (data, target) in enumerate(train_loader):
+            stime = time.time()
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
@@ -241,9 +263,13 @@ def train(epoch):
             with optimizer.skip_synchronize():
                 optimizer.step()
 
-            t.set_postfix_str("loss: {:.4f}, acc: {:.2f}%".format(
-            train_loss.avg.item(), 100*train_accuracy.avg.item()))
-            t.update(1)
+            #t.set_postfix_str("loss: {:.4f}, acc: {:.2f}%".format(
+            #train_loss.avg.item(), 100*train_accuracy.avg.item()))
+            #t.update(1)
+            avg_time += (time.time()-stime)
+            if batch_idx > 0 and batch_idx % display == 0:
+                if args.verbose:
+                    logger.info("[%d][%d] loss: %.4f, acc: %.2f, time: %.3f, speed: %.3f images/s" % (epoch, batch_idx, train_loss.avg.item(), 100*train_accuracy.avg.item(), avg_time/display, args.batch_size/(avg_time/display)))
 
     if not STEP_FIRST:
         for scheduler in lr_scheduler:
@@ -290,5 +316,5 @@ for epoch in range(args.epochs):
     test(epoch)
 
 if verbose:
-    print("\nTraining time:", str(datetime.timedelta(seconds=time.time() - start)))
+    logger.info("Training time: %s", str(datetime.timedelta(seconds=time.time() - start)))
 

@@ -104,6 +104,39 @@ class ComputeA:
 
         return cov_a
 
+    @classmethod
+    def get_data(cls, a, layer):
+        if isinstance(layer, nn.Linear):
+            cov_a = cls.linear_data(a, layer)
+        elif isinstance(layer, nn.Conv2d):
+            cov_a = cls.conv_data(a, layer)
+        else:
+            raise NotImplementedError("KFAC does not support layer: ".format(layer))
+        return cov_a
+
+    @staticmethod
+    def conv_data(a, layer):
+        batch_size = a.size(0)
+        a = _extract_patches(a, layer.kernel_size, layer.stride, layer.padding)
+        spatial_size = a.size(1) * a.size(2)
+        a = a.view(-1, a.size(-1))
+        if layer.bias is not None:
+            a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
+        a = a/spatial_size
+        batch_size = a.size(0)
+        return a
+
+    @staticmethod
+    def linear_data(a, layer):
+        batch_size = a.size(0)
+        #if len(a.shape) > 2:
+        #    a = a.view(-1, a.shape[-1])
+        #    a = torch.mean(a, list(range(len(a.shape)))[1:-1])
+        if layer.bias is not None:
+            a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
+        return a
+
+
     @staticmethod
     def conv2d(a, layer):
         batch_size = a.size(0)
@@ -151,6 +184,37 @@ class ComputeG:
             raise NotImplementedError("KFAC does not support layer: ".format(layer))
 
         return cov_g
+
+    @classmethod
+    def get_data(cls, a, layer, batch_averaged):
+        if isinstance(layer, nn.Linear):
+            cov_g = cls.linear_data(a, layer, batch_averaged)
+        elif isinstance(layer, nn.Conv2d):
+            cov_g = cls.conv_data(a, layer, batch_averaged)
+        else:
+            raise NotImplementedError("KFAC does not support layer: ".format(layer))
+        return cov_g
+
+    @staticmethod
+    def conv_data(g, layer, batch_averaged):
+        spatial_size = g.size(2) * g.size(3)
+        batch_size = g.shape[0]
+        g = g.transpose(1, 2).transpose(2, 3)
+        g = try_contiguous(g)
+        g = g.view(-1, g.size(-1))
+
+        if batch_averaged:
+            g = g * batch_size
+        g = g * spatial_size
+        return g
+
+    @staticmethod
+    def linear_data(g, layer, batch_averaged):
+        batch_size = g.size(0)
+        if batch_averaged:
+            return g * batch_size
+        else:
+            return g / batch_size
 
     @staticmethod
     def conv2d(g, layer, batch_averaged):

@@ -17,9 +17,6 @@ strhdlr = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s [%(filename)s:%(lineno)d] %(levelname)s %(message)s')
 strhdlr.setFormatter(formatter)
 logger.addHandler(strhdlr) 
-logfile = 'resnet50.log'
-hdlr = logging.FileHandler(logfile)
-logger.addHandler(hdlr) 
 
 
 import torch
@@ -161,6 +158,10 @@ def initialize():
         args.log_writer = SummaryWriter(args.log_dir) if hvd.rank() == 0 else None
     except ImportError:
         args.log_writer = None
+
+    logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    hdlr = logging.FileHandler(logfile)
+    logger.addHandler(hdlr) 
 
     return args
 
