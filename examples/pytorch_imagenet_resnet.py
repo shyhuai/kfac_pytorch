@@ -155,7 +155,8 @@ def initialize():
             from torch.utils.tensorboard import SummaryWriter
         else:
             from tensorboardX import SummaryWriter
-        args.log_writer = SummaryWriter(args.log_dir) if hvd.rank() == 0 else None
+        #args.log_writer = SummaryWriter(args.log_dir) if hvd.rank() == 0 else None
+        args.log_writer = None
     except ImportError:
         args.log_writer = None
 
@@ -356,10 +357,11 @@ def validate(epoch, model, loss_func, val_loader, args):
     val_loss = Metric('val_loss')
     val_accuracy = Metric('val_accuracy')
 
-    with tqdm(total=len(val_loader),
-              bar_format='{l_bar}{bar}|{postfix}',
-              desc='             '.format(epoch + 1, args.epochs),
-              disable=not args.verbose) as t:
+    #with tqdm(total=len(val_loader),
+    #          bar_format='{l_bar}{bar}|{postfix}',
+    #          desc='             '.format(epoch + 1, args.epochs),
+    #          disable=not args.verbose) as t:
+    if True:
         with torch.no_grad():
             for i, (data, target) in enumerate(val_loader):
                 if args.cuda:
@@ -367,12 +369,14 @@ def validate(epoch, model, loss_func, val_loader, args):
                 output = model(data)
                 val_loss.update(loss_func(output, target))
                 val_accuracy.update(accuracy(output, target))
+            if args.verbose:
+                logger.info("[%d][0] evaluation loss: %.4f, acc: %.3f" % (epoch, val_loss.avg.item(), 100*val_accuracy.avg.item()))
 
-                t.update(1)
-                if i + 1 == len(val_loader):
-                    t.set_postfix_str("\b\b val_loss: {:.4f}, val_acc: {:.2f}%".format(
-                            val_loss.avg.item(), 100*val_accuracy.avg.item()),
-                            refresh=False)
+                #t.update(1)
+                #if i + 1 == len(val_loader):
+                #    t.set_postfix_str("\b\b val_loss: {:.4f}, val_acc: {:.2f}%".format(
+                #            val_loss.avg.item(), 100*val_accuracy.avg.item()),
+                #            refresh=False)
 
     if args.log_writer is not None:
         args.log_writer.add_scalar('val/loss', val_loss.avg, epoch)

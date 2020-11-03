@@ -6,13 +6,13 @@
 #include "tcmm_kernel.h"
 
 
-std::vector<torch::Tensor> f_syseig(torch::Tensor a) {
-    auto c = tcmm_syseig(a);
+std::vector<torch::Tensor> f_symeig(torch::Tensor a) {
+    auto c = tcmm_symeig(a);
     return c;
 }
 
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("f_syseig", &f_syseig, "TCMM: Eigendecomposition using cuSolver");
+    m.def("f_symeig", &f_symeig, "TCMM: Eigendecomposition using cuSolver");
 }

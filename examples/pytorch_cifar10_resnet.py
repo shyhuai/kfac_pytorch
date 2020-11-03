@@ -126,8 +126,8 @@ args.log_dir = os.path.join(args.log_dir,
                             args.model, args.kfac_update_freq, hvd.size(),
                             datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
 os.makedirs(args.log_dir, exist_ok=True)
-log_writer = SummaryWriter(args.log_dir) if verbose else None
-#log_writer = None
+#log_writer = SummaryWriter(args.log_dir) if verbose else None
+log_writer = None
 
 # Horovod: limit # of CPU threads to be used per worker.
 torch.set_num_threads(4)
@@ -269,7 +269,8 @@ def train(epoch):
             avg_time += (time.time()-stime)
             if batch_idx > 0 and batch_idx % display == 0:
                 if args.verbose:
-                    logger.info("[%d][%d] loss: %.4f, acc: %.2f, time: %.3f, speed: %.3f images/s" % (epoch, batch_idx, train_loss.avg.item(), 100*train_accuracy.avg.item(), avg_time/display, args.batch_size/(avg_time/display)))
+                    logger.info("[%d][%d] train loss: %.4f, acc: %.3f, time: %.3f, speed: %.3f images/s" % (epoch, batch_idx, train_loss.avg.item(), 100*train_accuracy.avg.item(), avg_time/display, args.batch_size/(avg_time/display)))
+                    avg_time = 0.0
 
     if not STEP_FIRST:
         for scheduler in lr_scheduler:
@@ -286,10 +287,11 @@ def test(epoch):
     test_loss = Metric('val_loss')
     test_accuracy = Metric('val_accuracy')
     
-    with tqdm(total=len(test_loader),
-              bar_format='{l_bar}{bar}|{postfix}',
-              desc='             '.format(epoch + 1, args.epochs),
-              disable=not verbose) as t:
+    #with tqdm(total=len(test_loader),
+    #          bar_format='{l_bar}{bar}|{postfix}',
+    #          desc='             '.format(epoch + 1, args.epochs),
+    #          disable=not verbose) as t:
+    if True:
         with torch.no_grad():
             for i, (data, target) in enumerate(test_loader):
                 if args.cuda:
@@ -297,12 +299,14 @@ def test(epoch):
                 output = model(data)
                 test_loss.update(criterion(output, target))
                 test_accuracy.update(accuracy(output, target))
+            if args.verbose:
+                logger.info("[%d][0] evaluation loss: %.4f, acc: %.3f" % (epoch, test_loss.avg.item(), 100*test_accuracy.avg.item()))
                 
-                t.update(1)
-                if i + 1 == len(test_loader):
-                    t.set_postfix_str("\b\b test_loss: {:.4f}, test_acc: {:.2f}%".format(
-                            test_loss.avg.item(), 100*test_accuracy.avg.item()),
-                            refresh=False)
+                #t.update(1)
+                #if i + 1 == len(test_loader):
+                #    t.set_postfix_str("\b\b test_loss: {:.4f}, test_acc: {:.2f}%".format(
+                #            test_loss.avg.item(), 100*test_accuracy.avg.item()),
+                #            refresh=False)
 
     if log_writer:
         log_writer.add_scalar('test/loss', test_loss.avg, epoch)

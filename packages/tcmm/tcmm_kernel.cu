@@ -35,7 +35,7 @@ cusolverDnHandle_t get_cusolver_handler() {
 }
 
 
-std::vector<torch::Tensor> tcmm_syseig(torch::Tensor a) {
+std::vector<torch::Tensor> tcmm_symeig(torch::Tensor a) {
     const auto a_shape = a.sizes();
     const int m = a_shape[0];
     const int lda = m;

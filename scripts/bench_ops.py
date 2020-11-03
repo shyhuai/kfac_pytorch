@@ -8,7 +8,7 @@ import tcmm
 
 def compute_eigen(matrix):
     A = matrix
-    d, Q = tcmm.f_syseig(A)
+    d, Q = tcmm.f_symeig(A)
     Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
     #eps = 1e-10  # for numerical stability
@@ -34,7 +34,7 @@ def bench_ops(n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(64, 8192, 64) 
+    ns = range(64, 2048, 64) 
     #ns = range(512, 512+64, 64) 
     #ns = ns+range(2**20, 2**29, 2**20) 
     #ns = range(2**20, 2**29, 2**20) 

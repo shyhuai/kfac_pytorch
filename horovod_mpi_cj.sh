@@ -34,5 +34,5 @@ else
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_cifar10_resnet.py \
-        --base-lr 0.1 --epochs 100 --kfac-update-freq 0 --model $dnn --lr-decay 35 75 90
+        --base-lr 0.1 --epochs 100 --kfac-update-freq 1 --model $dnn --lr-decay 35 75 90
 fi

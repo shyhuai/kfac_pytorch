@@ -9,6 +9,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 import logging
+import tcmm
 
 logger = logging.getLogger()
 
@@ -269,7 +270,11 @@ class KFAC(optim.Optimizer):
         if i < n:
             start, end = get_block_boundary(i, n, factor.shape)
             block = factor[start[0]:end[0], start[1]:end[1]]
-            d, Q = torch.symeig(block, eigenvectors=True)
+
+            #d, Q = torch.symeig(block, eigenvectors=True)
+            d, Q = tcmm.f_symeig(block)
+            Q = Q.transpose(-2, -1)
+            
             d = torch.mul(d, (d > self.eps).float())
             evalues.data[start[0]:end[0]].copy_(d)
             evectors.data[start[0]:end[0], start[1]:end[1]].copy_(Q)
