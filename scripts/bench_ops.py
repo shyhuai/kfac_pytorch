@@ -8,8 +8,11 @@ import tcmm
 
 def compute_eigen(matrix):
     A = matrix
-    d, Q = tcmm.f_symeig(A)
-    Q = Q.transpose(-2, -1)
+    #d, Q = torch.qr(A)
+    #d = torch.cholesky(A); Q=None
+    d = torch.inverse(A); Q=None
+    #d, Q = tcmm.f_symeig(A)
+    #Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
     #eps = 1e-10  # for numerical stability
     #d = torch.mul(d, (d > eps).float())
@@ -20,6 +23,8 @@ def bench_ops(n, num_iters, warmup=5):
     a = a.view(-1, a.size(-1))
     print('a shape: ', a.shape)
     A = a.t() @ (a)
+    #A = torch.randn(n, n).float().cuda()
+    #A = torch.mm(A, A.t())
     print('A shape: ', A.shape)
     for i in range(warmup):
         compute_eigen(A)
@@ -34,8 +39,9 @@ def bench_ops(n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(64, 2048, 64) 
-    #ns = range(512, 512+64, 64) 
+    ns = range(1024, 2048, 64) 
+    #ns = range(3, 512+64, 64) 
+    #ns = [3]
     #ns = ns+range(2**20, 2**29, 2**20) 
     #ns = range(2**20, 2**29, 2**20) 
     for n in ns:

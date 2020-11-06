@@ -86,6 +86,25 @@ def update_running_avg(new, current, alpha):
     current += new
     current *= (1 - alpha)
 
+residualsA = {}
+residualsG = {}
+def sparsification(tensor, layer, ratio=0.01, residuals=None):
+    t = tensor.view(-1)
+    k = int(ratio * t.numel())
+    if residuals is not None:
+        if layer not in residuals:
+            residuals[layer] = torch.zeros_like(t)
+        t.add_(residuals[layer])
+    abs_t = torch.abs(t)
+    tmpvalues, tmpindexes = torch.topk(abs_t, k=k)
+    if residuals is not None:
+        residuals[layer].data = t + 0.0 
+        residuals[layer].data[tmpindexes] = 0. 
+    thres = tmpvalues[-1]
+    bool_indexes = abs_t < thres
+    t[bool_indexes] = 0.0
+    tensor = t.view(tensor.shape)
+    return tensor
 
 class ComputeA:
 
@@ -101,7 +120,7 @@ class ComputeA:
             cov_a = cls.conv2d(a, layer)
         else:
             raise NotImplementedError("KFAC does not support layer: ".format(layer))
-
+        #cov_a = sparsification(cov_a, layer, residuals=residualsA)
         return cov_a
 
     @classmethod
@@ -182,7 +201,7 @@ class ComputeG:
             cov_g = cls.linear(g, layer, batch_averaged)
         else:
             raise NotImplementedError("KFAC does not support layer: ".format(layer))
-
+        #cov_g = sparsification(cov_g, layer, residuals=residualsG)
         return cov_g
 
     @classmethod

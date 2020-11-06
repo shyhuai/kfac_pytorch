@@ -134,7 +134,7 @@ def initialize():
                                 args.kfac_update_freq, hvd.size(),
                                 datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
     args.checkpoint_format=os.path.join(args.log_dir, args.checkpoint_format)
-    os.makedirs(args.log_dir, exist_ok=True)
+    #os.makedirs(args.log_dir, exist_ok=True)
 
     # If set > 0, will resume training from a given checkpoint.
     args.resume_from_epoch = 0
@@ -160,9 +160,12 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     hdlr = logging.FileHandler(logfile)
+    hdlr.setFormatter(formatter)
     logger.addHandler(hdlr) 
+    logger.info(args)
 
     return args
 
@@ -342,6 +345,7 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
                     logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
                     iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
                 avg_time = 0.0
+        logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
 
     if not STEP_FIRST:
         for scheduler in lr_schedules:
@@ -399,7 +403,7 @@ if __name__ == '__main__':
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
         validate(epoch, model, loss_func, val_loader, args)
-        save_checkpoint(model, opt, args.checkpoint_format, epoch)
+        #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     if args.verbose:
         logger.info("\nTraining time: %s", str(timedelta(seconds=time.time() - start)))

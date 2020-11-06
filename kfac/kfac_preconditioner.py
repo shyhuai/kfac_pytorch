@@ -2,12 +2,14 @@ import math
 import torch
 import torch.optim as optim
 import horovod.torch as hvd
+from horovod.torch.mpi_ops import allgather_async
 
 from kfac.utils import (ComputeA, ComputeG)
 from kfac.utils import update_running_avg
 from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
+from kfac.utils import sparsification
 import logging
 import tcmm
 
@@ -71,7 +73,9 @@ class KFAC(optim.Optimizer):
                  batch_averaged=True,
                  diag_blocks=1,
                  diag_warmup=0,
-                 distribute_layer_factors=None):
+                 distribute_layer_factors=None,
+                 sparse=False,
+                 sparse_ratio=0.01):
 
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -116,6 +120,10 @@ class KFAC(optim.Optimizer):
         self.m_A, self.m_G = {}, {}
         self.m_QA, self.m_QG = {}, {}
         self.m_dA, self.m_dG = {}, {}
+
+        self.sparse = sparse
+        self.sparse_ratio = sparse_ratio
+        self.residualsA, self.residualsG = {}, {}
 
         self.factor_decay = factor_decay
         self.kl_clip = kl_clip
@@ -185,34 +193,40 @@ class KFAC(optim.Optimizer):
         """Compute and update factor A for all modules"""
         for module in self.modules: 
             a = self.computeA(self.m_a[module], module)
+            if self.steps == 0:
+                self._init_A(a, module)
+            update_running_avg(a, self.m_A[module], self.factor_decay)
+            if self.sparse:
+                sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
             #if hvd.rank() == 0:
-            #    data = ComputeA.get_data(self.m_a[module], module)
+            #    data = self.m_A[module] #ComputeA.get_data(self.m_a[module], module)
             #    d = data.view(-1)
             #    indexes = d.nonzero().data.squeeze().view(-1)
             #    nnz = indexes.numel() 
             #    numel = d.numel()
             #    sparsity = (numel-nnz)*1.0/numel
             #    logger.info('vector A name: %s, shape: %s, sparsity: %f', module, data.shape, sparsity)
-            if self.steps == 0:
-                self._init_A(a, module)
-            update_running_avg(a, self.m_A[module], self.factor_decay)
+
 
     def _update_G(self):
         """Compute and update factor G for all modules"""
         for module in self.modules:
             g = self.computeG(self.m_g[module], module, self.batch_averaged)
+                #logger.info('G Name: %s, shape: %s', module, g.shape)
+            if self.steps == 0:
+                self._init_G(g, module)
+            update_running_avg(g, self.m_G[module], self.factor_decay)
+            if self.sparse:
+                sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
             #if hvd.rank() == 0:
-            #    data = ComputeG.get_data(self.m_g[module], module, self.batch_averaged)
+            #    data = self.m_G[module] #ComputeG.get_data(self.m_g[module], module, self.batch_averaged)
             #    d = data.view(-1)
             #    indexes = d.nonzero().data.squeeze().view(-1)
             #    nnz = indexes.numel() 
             #    numel = d.numel()
             #    sparsity = (numel-nnz)*1.0/numel
             #    logger.info('vector G name: %s, shape: %s, sparsity: %f', module, data.shape, sparsity)
-                #logger.info('G Name: %s, shape: %s', module, g.shape)
-            if self.steps == 0:
-                self._init_G(g, module)
-            update_running_avg(g, self.m_G[module], self.factor_decay)
+
 
     def _update_eigen_A(self, module, ranks):
         """Compute eigendecomposition of A for module on specified workers
@@ -395,7 +409,10 @@ class KFAC(optim.Optimizer):
             self._update_A()
             self._update_G()
             if hvd.size() > 1:
-                self._allreduce_factors()
+                if self.sparse:
+                    self._allgather_factors()
+                else:
+                    self._allreduce_factors()
 
         # if we are switching from no diag approx to approx, we need to clear
         # off-block-diagonal elements
@@ -442,6 +459,18 @@ class KFAC(optim.Optimizer):
 
         for handle in handles:
             hvd.synchronize(handle)
+
+    def _allgather_factors(self):
+        """Allgather the factors for all layers"""
+        handles = []
+
+        for m in self.modules:
+            handles.append(hvd.allreduce_async_(self.m_A[m].data, op=hvd.Average))
+            handles.append(hvd.allreduce_async_(self.m_G[m].data, op=hvd.Average))
+
+        for handle in handles:
+            hvd.synchronize(handle)
+
 
     def _allreduce_eigendecomp(self):
         """Allreduce the eigendecompositions for all layers

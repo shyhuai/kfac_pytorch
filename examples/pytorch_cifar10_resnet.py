@@ -25,6 +25,7 @@ from utils import *
 import kfac
 
 import logging
+#torch.multiprocessing.set_start_method('spawn')
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -107,9 +108,13 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 # Horovod: initialize library.
 hvd.init()
 
-logfile = './logs/cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
+logfile = './logs/sparse_cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
+#logfile = './logs/cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
 hdlr = logging.FileHandler(logfile)
+hdlr.setFormatter(formatter)
 logger.addHandler(hdlr) 
+logger.info(args)
+
 
 torch.manual_seed(args.seed)
 verbose = True if hvd.rank() == 0 else False
@@ -125,7 +130,7 @@ args.log_dir = os.path.join(args.log_dir,
                             "cifar10_{}_kfac{}_gpu_{}_{}".format(
                             args.model, args.kfac_update_freq, hvd.size(),
                             datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
-os.makedirs(args.log_dir, exist_ok=True)
+#os.makedirs(args.log_dir, exist_ok=True)
 #log_writer = SummaryWriter(args.log_dir) if verbose else None
 log_writer = None
 
@@ -271,6 +276,8 @@ def train(epoch):
                 if args.verbose:
                     logger.info("[%d][%d] train loss: %.4f, acc: %.3f, time: %.3f, speed: %.3f images/s" % (epoch, batch_idx, train_loss.avg.item(), 100*train_accuracy.avg.item(), avg_time/display, args.batch_size/(avg_time/display)))
                     avg_time = 0.0
+        if args.verbose:
+            logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
 
     if not STEP_FIRST:
         for scheduler in lr_scheduler:
