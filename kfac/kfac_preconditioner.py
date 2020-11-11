@@ -74,7 +74,7 @@ class KFAC(optim.Optimizer):
                  diag_blocks=1,
                  diag_warmup=0,
                  distribute_layer_factors=None,
-                 sparse=False,
+                 sparse=True,
                  sparse_ratio=0.01):
 
         if not 0.0 <= lr:
@@ -110,6 +110,7 @@ class KFAC(optim.Optimizer):
         self.computeG = ComputeG()
         self.known_modules = {'Linear', 'Conv2d'}
         self.modules = []
+        self.module_names = []
         self._register_modules(model)
 
         self.steps = 0
@@ -157,12 +158,16 @@ class KFAC(optim.Optimizer):
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
+        name_idx = 0
         for module in model.modules():
             classname = module.__class__.__name__
             if classname in self.known_modules:
                 self.modules.append(module)
                 module.register_forward_pre_hook(self._save_input)
                 module.register_backward_hook(self._save_grad_output)
+                module_name = 'module_name_%s_%d' % (classname, name_idx)
+                self.module_names.append(module_name)
+                name_idx += 1
 
     def _init_A(self, factor, module):
         """Initialize memory for factor A and its eigendecomp"""
@@ -409,7 +414,7 @@ class KFAC(optim.Optimizer):
             self._update_A()
             self._update_G()
             if hvd.size() > 1:
-                if self.sparse:
+                if False and self.sparse:
                     self._allgather_factors()
                 else:
                     self._allreduce_factors()
@@ -463,14 +468,47 @@ class KFAC(optim.Optimizer):
     def _allgather_factors(self):
         """Allgather the factors for all layers"""
         handles = []
+        def _get_value_and_idx(sparse_tensor):
+            tensor = sparse_tensor.data.view(-1)
+            one_indexes = tensor != 0
+            indexes = one_indexes.nonzero().data.squeeze().view(-1)
+            values = tensor.data[indexes] 
+            return values, indexes.int()
 
-        for m in self.modules:
-            handles.append(hvd.allreduce_async_(self.m_A[m].data, op=hvd.Average))
-            handles.append(hvd.allreduce_async_(self.m_G[m].data, op=hvd.Average))
+        for i, m in enumerate(self.modules):
+            module_name = self.module_names[i]
 
-        for handle in handles:
-            hvd.synchronize(handle)
+            A_values, A_indexes = _get_value_and_idx(self.m_A[m].data)
+            A_value_name = module_name + '_A_value'
+            A_idx_name = module_name + '_A_idx'
+            h_value = allgather_async(A_values, A_value_name)
+            h_idx = allgather_async(A_indexes, A_idx_name)
 
+            G_values, G_indexes = _get_value_and_idx(self.m_G[m].data)
+            G_value_name = module_name + '_G_value'
+            G_idx_name = module_name + '_G_idx'
+            h_value_G = allgather_async(G_values, G_value_name)
+            h_idx_G = allgather_async(G_indexes, G_idx_name)
+            handles.append((h_value, h_idx, h_value_G, h_idx_G))
+
+        for i, handle in enumerate(handles):
+            module_name = self.module_names[i]
+            module = self.modules[i]
+            m_A = self.m_A[module].view(-1)
+            m_A.fill_(0.0)
+            m_G = self.m_G[module].view(-1)
+            m_G.fill_(0.0)
+
+            h_value_A, h_idx_A, h_value_G, h_idx_G = handle
+            A_values = hvd.synchronize(h_value_A)
+            A_indexes = hvd.synchronize(h_idx_A).long()
+            m_A.scatter_add_(0, A_indexes, A_values)
+            m_A.div_(hvd.size())
+            
+            G_values = hvd.synchronize(h_value_G)
+            G_indexes = hvd.synchronize(h_idx_G).long()
+            m_G.scatter_add_(0, G_indexes, G_values)
+            m_G.div_(hvd.size())
 
     def _allreduce_eigendecomp(self):
         """Allreduce the eigendecompositions for all layers

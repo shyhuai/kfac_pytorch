@@ -96,3 +96,10 @@ std::vector<torch::Tensor> tcmm_symeig(torch::Tensor a) {
     tuple.push_back(V); 
     return tuple;
 }
+
+std::vector<torch::Tensor> tcmm_symeig_sparse(torch::Tensor a) {
+    std::vector<torch::Tensor> tuple;
+    tuple.push_back(a); 
+    tuple.push_back(a); 
+    return tuple;
+}
