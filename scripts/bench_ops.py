@@ -4,14 +4,15 @@ import torch
 import time
 
 import tcmm
+import reader
 
 
 def compute_eigen(matrix):
     A = matrix
     #d, Q = torch.qr(A)
     #d = torch.cholesky(A); Q=None
-    d = torch.inverse(A); Q=None
-    #d, Q = tcmm.f_symeig(A)
+    #d = torch.inverse(A); Q=None
+    d, Q = tcmm.f_symeig(A)
     #Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
     #eps = 1e-10  # for numerical stability
@@ -37,6 +38,21 @@ def bench_ops(n, num_iters, warmup=5):
     time_used = (etime-stime)/num_iters
     return time_used
 
+def bench_gemm(n, num_iters, warmup=5):
+    a = torch.rand(n).float().cuda()
+    a = a.view(-1, a.size(-1))
+    #print('a shape: ', a.shape)
+    for i in range(warmup):
+        A = a.t() @ (a)
+    torch.cuda.synchronize()
+    stime = time.time()
+    for i in range(num_iters):
+        A = a.t() @ (a)
+    torch.cuda.synchronize()
+    etime = time.time()
+    time_used = (etime-stime)/num_iters
+    return time_used
+
 
 def bench():
     ns = range(1024, 2048, 64) 
@@ -48,8 +64,20 @@ def bench():
         num_iters = 50
         if n > 2**19:
             num_iters = 10
-        t = bench_ops(n, num_iters)
+        #t = bench_ops(n, num_iters)
+        t = bench_gemm(n, num_iters)
         print('%d,%f'%(n,t))
+
+def bench_from_log():
+    workloads = reader.read_tensor_sizes('./logs/resnet50-matrixsize.log')
+    total_time = 0
+    num_iters = 100
+    for w in workloads:
+        n = w[0]
+        t = bench_gemm(n, num_iters)
+        total_time += t
+        print('%d,%f'%(n,t))
+    print('All factors: ', total_time)
 
 def check():
     n = 4
@@ -75,5 +103,6 @@ def check():
     print('bA1: ', _goback(d1, Q1))
 
 if __name__ == '__main__':
-    bench()
+    #bench()
+    bench_from_log()
     #check()

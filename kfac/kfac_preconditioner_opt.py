@@ -111,6 +111,8 @@ class KFAC(optim.Optimizer):
         self.known_modules = {'Linear', 'Conv2d'}
         self.modules = []
         self.module_names = []
+        self.fw_factor_handles = []
+        self.bw_factor_handles = []
         self._register_modules(model)
 
         self.steps = 0
@@ -151,10 +153,24 @@ class KFAC(optim.Optimizer):
         if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
             self.m_a[module] = input[0].data
 
+    def _compute_forward_factor(self, module, input):
+        if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
+            self.m_a[module] = input[0].data
+            self._update_module_A(module)
+            handle = hvd.allreduce_async_(self.m_A[module].data, op=hvd.Average)
+            self.fw_factor_handles.append(handle)
+
     def _save_grad_output(self, module, grad_input, grad_output):
         """Hook for saving gradient w.r.t output"""
         if self.steps % self.fac_update_freq == 0:
             self.m_g[module] = grad_output[0].data
+
+    def _compute_backward_factor(self, module, grad_input, grad_output):
+        if self.steps % self.fac_update_freq == 0:
+            self.m_g[module] = grad_output[0].data
+            self._update_module_G(module)
+            handle = hvd.allreduce_async_(self.m_G[module].data, op=hvd.Average)
+            self.bw_factor_handles.append(handle)
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
@@ -163,8 +179,10 @@ class KFAC(optim.Optimizer):
             classname = module.__class__.__name__
             if classname in self.known_modules:
                 self.modules.append(module)
-                module.register_forward_pre_hook(self._save_input)
-                module.register_backward_hook(self._save_grad_output)
+                #module.register_forward_pre_hook(self._save_input)
+                module.register_forward_pre_hook(self._compute_forward_factor)
+                #module.register_backward_hook(self._save_grad_output)
+                module.register_backward_hook(self._compute_backward_factor)
                 module_name = 'module_name_%s_%d' % (classname, name_idx)
                 self.module_names.append(module_name)
                 name_idx += 1
@@ -194,15 +212,25 @@ class KFAC(optim.Optimizer):
             self.m_dA[module].fill_(0)
             self.m_dG[module].fill_(0)
 
+    def _update_module_A(self, module):
+        a = self.computeA(self.m_a[module], module)
+        if self.steps == 0:
+            self._init_A(a, module)
+        update_running_avg(a, self.m_A[module], self.factor_decay)
+        if self.sparse:
+            sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+
     def _update_A(self):
         """Compute and update factor A for all modules"""
         for module in self.modules: 
-            a = self.computeA(self.m_a[module], module)
-            if self.steps == 0:
-                self._init_A(a, module)
-            update_running_avg(a, self.m_A[module], self.factor_decay)
-            if self.sparse:
-                sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+            self._update_module_A(module)
+            #a = self.computeA(self.m_a[module], module)
+            #if self.steps == 0:
+            #    self._init_A(a, module)
+            #update_running_avg(a, self.m_A[module], self.factor_decay)
+            #if self.sparse:
+            #    sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+
             #if hvd.rank() == 0:
             #    data = self.m_A[module] #ComputeA.get_data(self.m_a[module], module)
             #    d = data.view(-1)
@@ -212,17 +240,20 @@ class KFAC(optim.Optimizer):
             #    sparsity = (numel-nnz)*1.0/numel
             #    logger.info('vector A name: %s, shape: %s, sparsity: %f', module, data.shape, sparsity)
 
+    def _update_module_G(self, module):
+        g = self.computeG(self.m_g[module], module, self.batch_averaged)
+            #logger.info('G Name: %s, shape: %s', module, g.shape)
+        if self.steps == 0:
+            self._init_G(g, module)
+        update_running_avg(g, self.m_G[module], self.factor_decay)
+        if self.sparse:
+            sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
 
     def _update_G(self):
         """Compute and update factor G for all modules"""
         for module in self.modules:
-            g = self.computeG(self.m_g[module], module, self.batch_averaged)
-                #logger.info('G Name: %s, shape: %s', module, g.shape)
-            if self.steps == 0:
-                self._init_G(g, module)
-            update_running_avg(g, self.m_G[module], self.factor_decay)
-            if self.sparse:
-                sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
+            self._update_eigen_G(module)
+
             #if hvd.rank() == 0:
             #    data = self.m_G[module] #ComputeG.get_data(self.m_g[module], module, self.batch_averaged)
             #    d = data.view(-1)
@@ -411,13 +442,13 @@ class KFAC(optim.Optimizer):
             diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
 
         if self.steps % self.fac_update_freq == 0:
-            self._update_A()
-            self._update_G()
-            if hvd.size() > 1:
-                if self.sparse:
-                    self._allgather_factors()
-                else:
-                    self._allreduce_factors()
+
+            for handle in self.fw_factor_handles:
+                hvd.synchronize(handle)
+            self.fw_factor_handles.clear()
+            for handle in self.bw_factor_handles:
+                hvd.synchronize(handle)
+            self.bw_factor_handles.clear()
 
         # if we are switching from no diag approx to approx, we need to clear
         # off-block-diagonal elements

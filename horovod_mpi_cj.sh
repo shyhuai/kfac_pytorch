@@ -27,7 +27,7 @@ if [ "$dnn" = "resnet50" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_imagenet_resnet.py \
-          --base-lr 0.0125 --epochs 55 --kfac-update-freq 1 --model $dnn  --lr-decay 25 35 40 45 50 \
+          --base-lr 0.0125 --epochs 55 --kfac-update-freq 1 --model $dnn  --batch-size 32 --lr-decay 25 35 40 45 50 \
           --train-dir /localdata/ILSVRC2012_dataset/train \
           --val-dir /localdata/ILSVRC2012_dataset/val
 else
