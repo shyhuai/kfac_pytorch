@@ -123,6 +123,8 @@ class KFAC(optim.Optimizer):
         self.m_A, self.m_G = {}, {}
         self.m_QA, self.m_QG = {}, {}
         self.m_dA, self.m_dG = {}, {}
+        self.m_dA_ranks = {}
+        self.m_dG_ranks = {}
 
         self.sparse = sparse
         self.sparse_ratio = sparse_ratio
@@ -224,13 +226,6 @@ class KFAC(optim.Optimizer):
         """Compute and update factor A for all modules"""
         for module in self.modules: 
             self._update_module_A(module)
-            #a = self.computeA(self.m_a[module], module)
-            #if self.steps == 0:
-            #    self._init_A(a, module)
-            #update_running_avg(a, self.m_A[module], self.factor_decay)
-            #if self.sparse:
-            #    sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
-
             #if hvd.rank() == 0:
             #    data = self.m_A[module] #ComputeA.get_data(self.m_a[module], module)
             #    d = data.view(-1)
@@ -462,6 +457,7 @@ class KFAC(optim.Optimizer):
             # reset rank iter so device get the same layers
             # to compute to take advantage of caching
             self.rank_iter.reset() 
+            handles = []
 
             for module in self.modules:
                 # Get ranks to compute this layer on
@@ -469,14 +465,34 @@ class KFAC(optim.Optimizer):
                 ranks_a = self.rank_iter.next(n)
                 ranks_g = self.rank_iter.next(n) if self.distribute_layer_factors \
                                                  else ranks_a
+                self.m_dA_ranks[module] = ranks_a[0]
+                self.m_dG_ranks[module] = ranks_g[0]
+                rank_a = ranks_a[0]
+                rank_g = ranks_g[0]
 
                 self._update_eigen_A(module, ranks_a)
+                h1 = hvd.broadcast_async_(self.m_QA[module], rank_a)
+                h2 = hvd.broadcast_async_(self.m_dA[module], rank_a)
                 self._update_eigen_G(module, ranks_g)
+                h3 = hvd.broadcast_async_(self.m_QG[module], rank_g)
+                h4 = hvd.broadcast_async_(self.m_dG[module], rank_g)
+                handles.append((h1, h2, h3, h4))
 
             if hvd.size() > 1:
-                self._allreduce_eigendecomp()
+                #for handle in handles:
+                #    hvd.synchronize(handle)
+                #self._allreduce_eigendecomp()
+                #self._broadcast_eigendecomp()
+                pass
 
-        for module in self.modules:
+        for i, module in enumerate(self.modules):
+            if hvd.size() > 1:
+                h1, h2, h3, h4 = handles[i]
+                hvd.synchronize(h1)
+                hvd.synchronize(h2)
+                hvd.synchronize(h3)
+                hvd.synchronize(h4)
+
             grad = self._get_grad(module)
             precon_grad = self._get_preconditioned_grad(module, grad)
             updates[module] = precon_grad
@@ -555,6 +571,33 @@ class KFAC(optim.Optimizer):
             handles.append(hvd.allreduce_async_(self.m_QG[m].data, op=hvd.Sum))
             handles.append(hvd.allreduce_async_(self.m_dA[m].data, op=hvd.Sum))
             handles.append(hvd.allreduce_async_(self.m_dG[m].data, op=hvd.Sum))
+    
+        for handle in handles:
+            hvd.synchronize(handle)
+
+    def _broadcast_eigendecomp(self):
+        """Broadcasts the eigendecompositions for all layers
+
+        Note: we use `op=hvd.Sum` to simulate an allgather`. Each rank will
+        either compute the eigendecomposition for a factor or just return
+        zeros so we sum instead of averaging.
+        """
+        handles = []
+        rank = hvd.rank()
+
+        for i, m in enumerate(self.modules):
+            rank_a = self.m_dA_ranks[m]
+            rank_g = self.m_dG_ranks[m]
+            name = self.module_names[i]
+
+            h = hvd.broadcast_async_(self.m_QA[m], rank_a, name=name+'mQA')
+            handles.append(h)
+            h = hvd.broadcast_async_(self.m_dA[m], rank_a, name=name+'mdA')
+            handles.append(h)
+            h = hvd.broadcast_async_(self.m_QG[m], rank_g, name=name+'mQG')
+            handles.append(h)
+            h = hvd.broadcast_async_(self.m_dG[m], rank_g, name=name+'mdG')
+            handles.append(h)
     
         for handle in handles:
             hvd.synchronize(handle)

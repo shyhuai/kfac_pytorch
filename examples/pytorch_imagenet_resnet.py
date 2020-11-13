@@ -33,6 +33,7 @@ import imagenet_resnet as models
 from utils import *
 
 import kfac
+#os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '4' 
 
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
 
