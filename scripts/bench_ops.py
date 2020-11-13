@@ -13,7 +13,7 @@ def compute_eigen(matrix):
     #d = torch.cholesky(A); Q=None
     #d = torch.inverse(A); Q=None
     d, Q = tcmm.f_symeig(A)
-    #Q = Q.transpose(-2, -1)
+    Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
     #eps = 1e-10  # for numerical stability
     #d = torch.mul(d, (d > eps).float())
@@ -74,7 +74,8 @@ def bench_from_log():
     num_iters = 100
     for w in workloads:
         n = w[0]
-        t = bench_gemm(n, num_iters)
+        #t = bench_gemm(n, num_iters)
+        t = bench_ops(n, num_iters)
         total_time += t
         print('%d,%f'%(n,t))
     print('All factors: ', total_time)
