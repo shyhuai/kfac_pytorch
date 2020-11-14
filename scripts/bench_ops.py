@@ -2,6 +2,7 @@
 from __future__ import print_function
 import torch
 import time
+import numpy as np
 
 import tcmm
 import reader
@@ -15,18 +16,18 @@ def compute_eigen(matrix):
     d, Q = tcmm.f_symeig(A)
     Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
-    #eps = 1e-10  # for numerical stability
-    #d = torch.mul(d, (d > eps).float())
+    eps = 1e-10  # for numerical stability
+    d = torch.mul(d, (d > eps).float())
     return d, Q
 
 def bench_ops(n, num_iters, warmup=5):
     a = torch.rand(n).float().cuda()
     a = a.view(-1, a.size(-1))
-    print('a shape: ', a.shape)
+    #print('a shape: ', a.shape)
     A = a.t() @ (a)
     #A = torch.randn(n, n).float().cuda()
     #A = torch.mm(A, A.t())
-    print('A shape: ', A.shape)
+    #print('A shape: ', A.shape)
     for i in range(warmup):
         compute_eigen(A)
     torch.cuda.synchronize()
@@ -70,15 +71,16 @@ def bench():
 
 def bench_from_log():
     workloads = reader.read_tensor_sizes('./logs/resnet50-matrixsize.log')
-    total_time = 0
-    num_iters = 100
+    total_time = []
+    num_iters = 50
     for w in workloads:
         n = w[0]
         #t = bench_gemm(n, num_iters)
         t = bench_ops(n, num_iters)
-        total_time += t
+        total_time.append(t)
         print('%d,%f'%(n,t))
-    print('All factors: ', total_time)
+    print('Total time: ', np.sum(total_time))
+    print('Max-min-mean-std: ', np.max(total_time), np.min(total_time), np.mean(total_time), np.std(total_time))
 
 def check():
     n = 4
