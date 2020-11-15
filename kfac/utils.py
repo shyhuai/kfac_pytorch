@@ -133,6 +133,16 @@ class ComputeA:
             raise NotImplementedError("KFAC does not support layer: ".format(layer))
         return cov_a
 
+    @classmethod
+    def get_dimension(cls, a, layer):
+        if isinstance(layer, nn.Linear):
+            cov_a = cls.conv2d_data(a, layer)
+        elif isinstance(layer, nn.Conv2d):
+            cov_a = cls.linear_data(a, layer)
+        else:
+            raise NotImplementedError("KFAC does not support layer: ".format(layer))
+        return cov_a.shape[-1]
+
     @staticmethod
     def conv_data(a, layer):
         batch_size = a.size(0)
@@ -203,6 +213,16 @@ class ComputeG:
             raise NotImplementedError("KFAC does not support layer: ".format(layer))
         #cov_g = sparsification(cov_g, layer, residuals=residualsG)
         return cov_g
+
+    @classmethod
+    def get_dimension(cls, g, layer, batch_averaged):
+        if isinstance(layer, nn.Linear):
+            cov_g = cls.conv2d_data(g, layer, batch_averaged)
+        elif isinstance(layer, nn.Conv2d):
+            cov_g = cls.linear_data(g, layer, batch_averaged)
+        else:
+            raise NotImplementedError("KFAC does not support layer: ".format(layer))
+        return cov_g.shape[-1]
 
     @classmethod
     def get_data(cls, a, layer, batch_averaged):

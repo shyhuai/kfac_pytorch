@@ -2,6 +2,7 @@ import math
 import torch
 import torch.optim as optim
 import horovod.torch as hvd
+import numpy as np
 from horovod.torch.mpi_ops import allgather_async
 
 from kfac.utils import (ComputeA, ComputeG)
@@ -459,12 +460,10 @@ class KFAC(optim.Optimizer):
             self.rank_iter.reset() 
             handles = []
 
+            eigen_ranks = self._generate_eigen_ranks(epoch)
+
             for module in self.modules:
-                # Get ranks to compute this layer on
-                n = self._get_diag_blocks(module, diag_blocks)
-                ranks_a = self.rank_iter.next(n)
-                ranks_g = self.rank_iter.next(n) if self.distribute_layer_factors \
-                                                 else ranks_a
+                ranks_a, ranks_g = eigen_ranks[module]
                 self.m_dA_ranks[module] = ranks_a[0]
                 self.m_dG_ranks[module] = ranks_g[0]
                 rank_a = ranks_a[0]
@@ -500,6 +499,34 @@ class KFAC(optim.Optimizer):
         self._update_scale_grad(updates)
 
         self.steps += 1
+
+    def _generate_eigen_ranks_naive(self, epoch):
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        for module in self.modules:
+            # Get ranks to compute this layer on
+            n = self._get_diag_blocks(module, diag_blocks)
+            ranks_a = self.rank_iter.next(n)
+            ranks_g = self.rank_iter.next(n) if self.distribute_layer_factors \
+                                             else ranks_a
+            module_ranks[module] = (ranks_a, ranks_g)
+        return module_ranks
+
+    def _generate_eigen_ranks(self, epoch):
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        buckets = [0] * hvd.size()
+        for module in self.modules:
+            i = np.argmin(buckets)
+            a_dimension = self.m_a[module].shape[0]
+            g_dimension = self.m_g[module].shape[0]
+            ranks_a = (i,)
+            ranks_g = (i,)
+            buckets[i] += (a_dimension + g_dimension)
+
+            module_ranks[module] = (ranks_a, ranks_g)
+
+        return module_ranks
 
     def _allreduce_factors(self):
         """Allreduce the factors for all layers"""
