@@ -126,6 +126,7 @@ class KFAC(optim.Optimizer):
         self.m_dA, self.m_dG = {}, {}
         self.m_dA_ranks = {}
         self.m_dG_ranks = {}
+        self.module_ranks = None
 
         self.sparse = sparse
         self.sparse_ratio = sparse_ratio
@@ -460,7 +461,9 @@ class KFAC(optim.Optimizer):
             self.rank_iter.reset() 
             handles = []
 
-            eigen_ranks = self._generate_eigen_ranks(epoch)
+            #eigen_ranks = self._generate_eigen_ranks(epoch)
+            eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
+            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
 
             for module in self.modules:
                 ranks_a, ranks_g = eigen_ranks[module]
@@ -496,13 +499,16 @@ class KFAC(optim.Optimizer):
             precon_grad = self._get_preconditioned_grad(module, grad)
             updates[module] = precon_grad
 
-        self._update_scale_grad(updates)
+        #self._update_scale_grad(updates)
 
         self.steps += 1
 
     def _generate_eigen_ranks_naive(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
         module_ranks = {}
         diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        buckets = [0] * hvd.size()
         for module in self.modules:
             # Get ranks to compute this layer on
             n = self._get_diag_blocks(module, diag_blocks)
@@ -510,22 +516,81 @@ class KFAC(optim.Optimizer):
             ranks_g = self.rank_iter.next(n) if self.distribute_layer_factors \
                                              else ranks_a
             module_ranks[module] = (ranks_a, ranks_g)
+            buckets[ranks_a[0]] += self.m_a[module].shape[1]
+            buckets[ranks_g[0]] += self.m_g[module].shape[1]
+        self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('buckets: %s', buckets)
+            logger.info('module_ranks: %s', module_ranks.values())
         return module_ranks
 
-    def _generate_eigen_ranks(self, epoch):
+    def _generate_eigen_ranks_uniform(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
         module_ranks = {}
         diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
         buckets = [0] * hvd.size()
+        dimensions = []
+        module_factors = []
+        for i, m in enumerate(self.modules):
+            name = self.module_names[i]
+            a_dimension = self.m_A[m].shape[1]
+            g_dimension = self.m_G[m].shape[1]
+            dimensions.append(a_dimension)
+            module_factors.append(name+'-A')
+            dimensions.append(g_dimension)
+            module_factors.append(name+'-G')
+
+        descending_sorted_idx = np.argsort(dimensions)[::-1]
+        A_ranks = {}
+        G_ranks = {}
+        for i in descending_sorted_idx:
+            factor = module_factors[i]
+            dimension = dimensions[i]
+            m_i = self.module_names.index(factor[0:-2])
+            m = self.modules[m_i]
+
+            bi = np.argmin(buckets)
+            buckets[bi] += dimension
+            if factor[-1] == 'A':
+                A_ranks[m] = (bi,)
+            else:
+                G_ranks[m] = (bi,)
+        for m in self.modules:
+            module_ranks[m] = (A_ranks[m], G_ranks[m])
+
+        self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('buckets: %s', buckets)
+            logger.info('module_ranks: %s', module_ranks.values())
+        return module_ranks
+
+    def _generate_eigen_ranks(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        buckets = [0] * hvd.size()
+
         for module in self.modules:
             i = np.argmin(buckets)
-            a_dimension = self.m_a[module].shape[0]
-            g_dimension = self.m_g[module].shape[0]
+            if hvd.rank() == 0:
+                logger.info('A Name: %s, shape: %s', module, self.m_A[module].shape)
+                logger.info('G Name: %s, shape: %s', module, self.m_G[module].shape)
+            a_dimension = self.m_A[module].shape[1]
+            g_dimension = self.m_G[module].shape[1]
+            #buckets[i] += (a_dimension) + g_dimension)
+            buckets[i] += a_dimension
             ranks_a = (i,)
+            i = np.argmin(buckets)
             ranks_g = (i,)
-            buckets[i] += (a_dimension + g_dimension)
+            buckets[i] += g_dimension
 
             module_ranks[module] = (ranks_a, ranks_g)
-
+        self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('buckets: %s', buckets)
+            logger.info('module_ranks: %s', module_ranks.values())
         return module_ranks
 
     def _allreduce_factors(self):

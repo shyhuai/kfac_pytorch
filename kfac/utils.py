@@ -3,11 +3,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 def try_contiguous(x):
     if not x.is_contiguous():
         x = x.contiguous()
-
     return x
+
 
 class cycle:
     def __init__(self, iterable):
