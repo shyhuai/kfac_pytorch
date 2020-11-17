@@ -13,8 +13,17 @@ from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
 import logging
 import tcmm
+import torchsso
 
 logger = logging.getLogger()
+
+def add_value_to_diagonal(X, value):
+    if torch.cuda.is_available():
+        indices = torch.cuda.LongTensor([[i, i] for i in range(X.shape[0])])
+    else:
+        indices = torch.LongTensor([[i, i] for i in range(X.shape[0])])
+    values = X.new_ones(X.shape[0]).mul(value)
+    return X.index_put(tuple(indices.t()), values, accumulate=True)
 
 class KFAC(optim.Optimizer):
     """KFAC Distributed Gradient Preconditioner
@@ -321,14 +330,10 @@ class KFAC(optim.Optimizer):
         if i < n:
             start, end = get_block_boundary(i, n, factor.shape)
             block = factor[start[0]:end[0], start[1]:end[1]]
-
-            #d, Q = torch.symeig(block, eigenvectors=True)
-            d, Q = tcmm.f_symeig(block)
-            Q = Q.transpose(-2, -1)
+            block = add_value_to_diagonal(block, self.damping)
+            inverse = torchsso.utils.inv(block)
             
-            #d = torch.mul(d, (d > self.eps).float())
-            evalues.data[start[0]:end[0]].copy_(d)
-            evectors.data[start[0]:end[0], start[1]:end[1]].copy_(Q)
+            evectors.data[start[0]:end[0], start[1]:end[1]].copy_(inverse)
 
     def _get_diag_blocks(self, module, diag_blocks):
         """Helper method for determining number of diag_blocks to use
@@ -371,10 +376,7 @@ class KFAC(optim.Optimizer):
         Returns:
           preconditioned gradient with same shape as `grad`
         """
-        v1 = self.m_QG[module].t() @ grad @ self.m_QA[module]
-        v2 = v1 / (self.m_dG[module].unsqueeze(1) * self.m_dA[module].unsqueeze(0) + 
-                   self.damping)
-        v = self.m_QG[module] @ v2 @ self.m_QA[module].t()
+        v = self.m_QG[module].t() @ grad @ self.m_QA[module]
 
         if module.bias is not None:
             v = [v[:, :-1], v[:, -1:]]
@@ -478,11 +480,9 @@ class KFAC(optim.Optimizer):
 
                 self._update_eigen_A(module, ranks_a)
                 h1 = hvd.broadcast_async_(self.m_QA[module], rank_a)
-                h2 = hvd.broadcast_async_(self.m_dA[module], rank_a)
                 self._update_eigen_G(module, ranks_g)
-                h3 = hvd.broadcast_async_(self.m_QG[module], rank_g)
-                h4 = hvd.broadcast_async_(self.m_dG[module], rank_g)
-                handles.append((h1, h2, h3, h4))
+                h2 = hvd.broadcast_async_(self.m_QG[module], rank_g)
+                handles.append((h1, h2))
 
             if hvd.size() > 1:
                 #for handle in handles:
@@ -493,17 +493,15 @@ class KFAC(optim.Optimizer):
 
         for i, module in enumerate(self.modules):
             if hvd.size() > 1:
-                h1, h2, h3, h4 = handles[i]
+                h1, h2 = handles[i]
                 hvd.synchronize(h1)
                 hvd.synchronize(h2)
-                hvd.synchronize(h3)
-                hvd.synchronize(h4)
 
             grad = self._get_grad(module)
             precon_grad = self._get_preconditioned_grad(module, grad)
             updates[module] = precon_grad
 
-        #self._update_scale_grad(updates)
+        self._update_scale_grad(updates)
 
         self.steps += 1
 
