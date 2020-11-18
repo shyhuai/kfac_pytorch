@@ -460,6 +460,7 @@ class KFAC(optim.Optimizer):
             self.rank_iter.reset() 
             handles = []
 
+            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
             eigen_ranks = self._generate_eigen_ranks(epoch)
 
             for module in self.modules:

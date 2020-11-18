@@ -1,4 +1,4 @@
-export PYTHONPATH=/home/comp/15485625/.local/lib64/python3.6/site-packages
+#export PYTHONPATH=/home/comp/15485625/.local/lib64/python3.6/site-packages
 rm -rf tcmm_cpp.egg-info
 python3 setup.py clean 
 #python3 setup.py install --prefix=/home/comp/15485625/.local

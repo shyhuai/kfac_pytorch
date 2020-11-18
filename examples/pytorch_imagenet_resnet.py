@@ -174,10 +174,10 @@ def get_datasets(args):
     # Horovod: limit # of CPU threads to be used per worker.
     if args.single_threaded:
         torch.set_num_threads(4)
-        kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
+        kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
     else:
-        torch.set_num_threads(4)
-        kwargs = {'num_workers': 4, 'pin_memory': True} if args.cuda else {}
+        torch.set_num_threads(8)
+        kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
 
     train_dataset = datasets.ImageFolder(
             args.train_dir,
@@ -308,10 +308,10 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
             stime = time.time()
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
-            optimizer.zero_grad()
             iotime = time.time()
             iotimes.append(iotime-stime)
 
+            optimizer.zero_grad()
             for i in range(0, len(data), args.batch_size):
                 data_batch = data[i:i + args.batch_size]
                 target_batch = target[i:i + args.batch_size]
