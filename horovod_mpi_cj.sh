@@ -2,6 +2,7 @@
 #dnn="${dnn:-resnet32}"
 dnn="${dnn:-resnet50}"
 nworkers="${nworkers:-4}"
+batch_size="${batch_size:-32}"
 rdma="${rdma:-0}"
 MPIPATH=/home/esetstore/.local/openmpi-4.0.1
 PY=/home/esetstore/pytorch1.4/bin/python
@@ -20,19 +21,20 @@ params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
     -x LD_LIBRARY_PATH  \
     -x NCCL_IB_DISABLE=0 \
     -x NCCL_SOCKET_IFNAME=ib0 \
-    -x NCCL_DEBUG=INFO"
+    -x NCCL_DEBUG=INFO \
+    -x HOROVOD_CACHE_CAPACITY=0"
 fi
 
-if [ "$dnn" = "resnet50" ]; then
-$MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
-    $params \
-    $PY examples/pytorch_imagenet_resnet.py \
-          --base-lr 0.0125 --epochs 55 --kfac-update-freq 1 --model $dnn  --batch-size 32 --lr-decay 25 35 40 45 50 \
-          --train-dir /localdata/ILSVRC2012_dataset/train \
-          --val-dir /localdata/ILSVRC2012_dataset/val
-else
+if [ "$dnn" = "resnet32" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_cifar10_resnet.py \
-        --base-lr 0.1 --epochs 100 --kfac-update-freq 1 --model $dnn --lr-decay 35 75 90
+        --base-lr 0.1 --epochs 100 --kfac-update-freq 1 --model $dnn --lr-decay 35 75 90 --batch-size $batch_size 
+else
+$MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
+    $params \
+    $PY examples/pytorch_imagenet_resnet.py \
+          --base-lr 0.0125 --epochs 55 --kfac-update-freq 1 --model $dnn  --batch-size $batch_size --lr-decay 25 35 40 45 50 \
+          --train-dir /localdata/ILSVRC2012_dataset/train \
+          --val-dir /localdata/ILSVRC2012_dataset/val
 fi

@@ -6,7 +6,6 @@ import torch.nn.functional as F
 def try_contiguous(x):
     if not x.is_contiguous():
         x = x.contiguous()
-
     return x
 
 class cycle:
@@ -176,7 +175,8 @@ class ComputeA:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
         a = a/spatial_size
         # FIXME(CW): do we need to divide the output feature map's size?
-        return a.t() @ (a / batch_size)
+        #return a.t() @ (a / batch_size)
+        return torch.einsum('ki,kj->ij', a, a/batch_size) 
 
     @staticmethod
     def linear(a, layer):
@@ -187,7 +187,8 @@ class ComputeA:
         #    a = torch.mean(a, list(range(len(a.shape)))[1:-1])
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        return a.t() @ (a / batch_size)
+        #return a.t() @ (a / batch_size)
+        return torch.einsum('ki,kj->ij', a, a/batch_size) 
 
 
 class ComputeG:
@@ -268,7 +269,8 @@ class ComputeG:
         if batch_averaged:
             g = g * batch_size
         g = g * spatial_size
-        cov_g = g.t() @ (g / g.size(0))
+        cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
+        #cov_g = g.t() @ (g / g.size(0))
 
         return cov_g
 
@@ -280,7 +282,9 @@ class ComputeG:
         #    #g = g.view(-1, g.shape[-1])
         #    g = torch.mean(g, list(range(len(g.shape)))[1:-1])
         if batch_averaged:
-            cov_g = g.t() @ (g * batch_size)
+            cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
+            #cov_g = g.t() @ (g * batch_size)
         else:
-            cov_g = g.t() @ (g / batch_size)
+            cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
+            #cov_g = g.t() @ (g / batch_size)
         return cov_g

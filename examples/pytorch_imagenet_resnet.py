@@ -33,7 +33,7 @@ import imagenet_resnet as models
 from utils import *
 
 import kfac
-#os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '4' 
+os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '8' 
 
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
 
@@ -161,7 +161,8 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/debug_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     hdlr = logging.FileHandler(logfile)
     hdlr.setFormatter(formatter)
