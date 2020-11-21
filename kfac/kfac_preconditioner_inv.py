@@ -376,7 +376,8 @@ class KFAC(optim.Optimizer):
         Returns:
           preconditioned gradient with same shape as `grad`
         """
-        v = self.m_QG[module].t() @ grad @ self.m_QA[module]
+        #v = self.m_QG[module].t() @ grad @ self.m_QA[module]
+        v = self.m_QG[module] @ grad @ self.m_QA[module]
 
         if module.bias is not None:
             v = [v[:, :-1], v[:, -1:]]
