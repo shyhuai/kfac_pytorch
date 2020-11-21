@@ -161,7 +161,8 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    logfile = './logs/debug_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    #logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     hdlr = logging.FileHandler(logfile)
