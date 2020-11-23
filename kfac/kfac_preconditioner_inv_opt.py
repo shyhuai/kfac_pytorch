@@ -175,7 +175,7 @@ class KFAC(optim.Optimizer):
             self._update_module_A(module)
             if hvd.size() > 1:
                 name = self.module_name_map[module]
-                self.fw_merged_comm.allreduce_async_(name, self.m_A[module].data)
+                #self.fw_merged_comm.allreduce_async_(name, self.m_A[module].data)
 
     def _save_grad_output(self, module, grad_input, grad_output):
         """Hook for saving gradient w.r.t output"""
@@ -188,7 +188,7 @@ class KFAC(optim.Optimizer):
             self._update_module_G(module)
             if hvd.size() > 1:
                 name = self.module_name_map[module]
-                self.bw_merged_comm.allreduce_async_(name, self.m_G[module].data)
+                #self.bw_merged_comm.allreduce_async_(name, self.m_G[module].data)
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
