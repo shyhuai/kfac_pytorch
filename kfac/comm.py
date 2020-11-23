@@ -4,8 +4,9 @@ import numpy as np
 
 
 class TensorGroup:
-    def __init__(self, tensor_names):
+    def __init__(self, tensor_names, single_layer):
         self._tensor_names = tensor_names
+        self._single_layer = single_layer
         self._groups, self._group_indices_by_name = self._generate_groups()
         self._group_flags = [[0]*len(g) for g in self._groups]
         self._group_keys = [':'.join(g) for g in self._groups]
@@ -20,8 +21,8 @@ class TensorGroup:
         for i, t in enumerate(self._tensor_names):
             group_indices_by_name[t] = (group_idx, len(current_group))
             current_group.append(t)
-            if i % len(self._tensor_names) == 0 and i > 0:
-            #if i % 2 == 0 and i > 0:
+            #if i % len(self._tensor_names) == 0 and i > 0:
+            if not self._single_layer and i % 3 == 0 and i > 0:
                 groups.append(current_group)
                 current_group = []
                 group_idx += 1
@@ -78,12 +79,12 @@ class TensorGroup:
 
 
 class MergedComm:
-    def __init__(self, tensor_names, prefix='flag', merge=False):
+    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False):
         self._tensor_names = tensor_names
         self.merge = merge
         self.prefix = prefix
         if merge:
-            self._tensor_group = TensorGroup(tensor_names) 
+            self._tensor_group = TensorGroup(tensor_names, single_layer=single_layer) 
         else:
             self._tensor_group = None
         self._name_tensors = {}

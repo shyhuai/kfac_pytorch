@@ -80,7 +80,7 @@ def bench():
         print('%d,%f'%(n,t))
 
 def bench_from_log():
-    workloads = reader.read_tensor_sizes('./logs/resnet50-matrixsize.log')
+    workloads = reader.read_tensor_sizes('./logs/resnet50-matrixsize-G.log')
     total_time = []
     num_iters = 50
     total_sizes = []

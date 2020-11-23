@@ -126,8 +126,8 @@ class KFAC(optim.Optimizer):
         self.name_module_map = {}
         self.module_name_map = {}
         self._register_modules(model)
-        self.fw_merged_comm = MergedComm(self.module_names, prefix='forward', merge=True)
-        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=True)
+        self.fw_merged_comm = MergedComm(self.module_names, prefix='forward', merge=True, single_layer=False)
+        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=False, single_layer=True)
         self.steps = 0
 
         # Dictionaries keyed by `module` to storing the factors and
