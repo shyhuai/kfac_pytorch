@@ -83,12 +83,15 @@ def bench_from_log():
     workloads = reader.read_tensor_sizes('./logs/resnet50-matrixsize.log')
     total_time = []
     num_iters = 50
+    total_sizes = []
     for w in workloads:
         n = w[0]
         #t = bench_gemm(n, num_iters)
         t = bench_ops(n, num_iters)
         total_time.append(t)
+        total_sizes.append(n*n)
         print('%d,%f'%(n,t))
+    print('Total size: ', np.sum(total_sizes))
     print('Total time: ', np.sum(total_time))
     print('Max-min-mean-std: ', np.max(total_time), np.min(total_time), np.mean(total_time), np.std(total_time))
 
