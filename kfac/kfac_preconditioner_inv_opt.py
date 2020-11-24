@@ -11,7 +11,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
-from kfac.comm import MergedComm 
+from kfac.comm import MergedComm, MergedCommBcast
 import logging
 import tcmm
 import torchsso
@@ -127,7 +127,9 @@ class KFAC(optim.Optimizer):
         self.module_name_map = {}
         self._register_modules(model)
         self.fw_merged_comm = MergedComm(self.module_names, prefix='forward', merge=True, single_layer=False)
-        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=False, single_layer=True)
+        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=False, single_layer=False)
+        self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
+        self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
         self.steps = 0
 
         # Dictionaries keyed by `module` to storing the factors and
@@ -175,7 +177,7 @@ class KFAC(optim.Optimizer):
             self._update_module_A(module)
             if hvd.size() > 1:
                 name = self.module_name_map[module]
-                #self.fw_merged_comm.allreduce_async_(name, self.m_A[module].data)
+                self.fw_merged_comm.allreduce_async_(name, self.m_A[module].data)
 
     def _save_grad_output(self, module, grad_input, grad_output):
         """Hook for saving gradient w.r.t output"""
@@ -188,7 +190,7 @@ class KFAC(optim.Optimizer):
             self._update_module_G(module)
             if hvd.size() > 1:
                 name = self.module_name_map[module]
-                #self.bw_merged_comm.allreduce_async_(name, self.m_G[module].data)
+                self.bw_merged_comm.allreduce_async_(name, self.m_G[module].data)
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
@@ -469,19 +471,25 @@ class KFAC(optim.Optimizer):
                 rank_g = ranks_g[0]
 
                 self._update_inverse_A(module, ranks_a)
+                name = self.module_name_map[module]
                 if hvd.size() > 1:
-                    h1 = hvd.broadcast_async_(self.m_QA[module], rank_a)
+                    self.inverseA_merged_comm.bcast_async_(name, self.m_QA[module], rank_a)
+                #    h1 = hvd.broadcast_async_(self.m_QA[module], rank_a)
 
                 self._update_inverse_G(module, ranks_g)
                 if hvd.size() > 1:
-                    h2 = hvd.broadcast_async_(self.m_QG[module], rank_g)
-                    handles.append((h1, h2))
+                    self.inverseG_merged_comm.bcast_async_(name, self.m_QG[module], rank_g)
+                #    h2 = hvd.broadcast_async_(self.m_QG[module], rank_g)
+                #    handles.append((h1, h2))
 
+        if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
+            self.inverseA_merged_comm.synchronize()
+            self.inverseG_merged_comm.synchronize()
         for i, module in enumerate(self.modules):
-            if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
-                h1, h2 = handles[i]
-                hvd.synchronize(h1)
-                hvd.synchronize(h2)
+            #if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
+            #    h1, h2 = handles[i]
+            #    hvd.synchronize(h1)
+            #    hvd.synchronize(h2)
 
             grad = self._get_grad(module)
             precon_grad = self._get_preconditioned_grad(module, grad)

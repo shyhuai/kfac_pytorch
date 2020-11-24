@@ -90,7 +90,7 @@ class MergedComm:
         self._name_tensors = {}
         self.handles = []
 
-    def allreduce_async_(self, name, tensor):
+    def allreduce_async_(self, name, tensor, op=hvd.Average):
         if self.merge:
             new_name, new_tensor = self._tensor_group.push_tensor(name, tensor)
             self._name_tensors[name] = tensor
@@ -98,7 +98,7 @@ class MergedComm:
                 current_stream = torch.cuda.current_stream()
                 current_stream.synchronize()
 
-                handle = hvd.allreduce_async_(new_tensor, op=hvd.Average, name=self.prefix+new_name)
+                handle = hvd.allreduce_async_(new_tensor, op=op, name=self.prefix+new_name)
                 self.handles.append(handle)
         else:
             handle = hvd.allreduce_async_(tensor, op=hvd.Average)
@@ -112,4 +112,38 @@ class MergedComm:
             self.handles.clear()
             self._tensor_group.clear_group_flags()
 
+
+class MergedCommBcast:
+    def __init__(self, tensor_names, prefix='flag'):
+        self._tensor_names = tensor_names
+        self.merge = False
+        self.prefix = prefix
+        if self.merge:
+            self._tensor_group = TensorGroup(tensor_names, single_layer=False) 
+        else:
+            self._tensor_group = None
+        self._name_tensors = {}
+        self.handles = []
+
+    def bcast_async_(self, name, tensor, rank):
+        if self.merge:
+            new_name, new_tensor = self._tensor_group.push_tensor(name, tensor)
+            self._name_tensors[name] = tensor
+            if new_tensor is not None:
+                current_stream = torch.cuda.current_stream()
+                current_stream.synchronize()
+
+                handle = hvd.broadcast_async_(new_tensor, rank, name=self.prefix+new_name)
+                self.handles.append(handle)
+        else:
+            handle = hvd.broadcast_async_(tensor, rank)
+            self.handles.append(handle)
+
+    def synchronize(self):
+        for h in self.handles:
+            hvd.synchronize(h)
+        if self.merge:
+            self._tensor_group.pull_alltensors()
+            self.handles.clear()
+            self._tensor_group.clear_group_flags()
 
