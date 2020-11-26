@@ -175,8 +175,8 @@ class ComputeA:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
         a = a/spatial_size
         # FIXME(CW): do we need to divide the output feature map's size?
-        #return a.t() @ (a / batch_size)
-        return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        return a.t() @ (a / batch_size)
+        #return torch.einsum('ki,kj->ij', a, a/batch_size) 
 
     @staticmethod
     def linear(a, layer):
@@ -187,8 +187,8 @@ class ComputeA:
         #    a = torch.mean(a, list(range(len(a.shape)))[1:-1])
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        #return a.t() @ (a / batch_size)
-        return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        return a.t() @ (a / batch_size)
+        #return torch.einsum('ki,kj->ij', a, a/batch_size) 
 
 
 class ComputeG:

@@ -107,9 +107,9 @@ class MergedComm:
     def synchronize(self):
         for h in self.handles:
             hvd.synchronize(h)
+        self.handles.clear()
         if self.merge:
             self._tensor_group.pull_alltensors()
-            self.handles.clear()
             self._tensor_group.clear_group_flags()
 
 
@@ -139,11 +139,44 @@ class MergedCommBcast:
             handle = hvd.broadcast_async_(tensor, rank)
             self.handles.append(handle)
 
+    def allgather_sync(self, tensors, ranks):
+        nworkers = hvd.size()
+        rank = hvd.rank()
+        start = 0
+        sub_ranks = ranks[start:start+nworkers]
+        sub_tensors = tensors[start:start+nworkers]
+        while len(sub_ranks) > 0:
+            #print('len(sub_ranks): ', len(sub_ranks))
+            #print('len(sub_tensors): ', len(sub_tensors))
+            try:
+                idx = sub_ranks.index(rank)
+            except:
+                idx = -1
+            if idx < 0:
+                tensor = sub_tensors[0].new(0) 
+            else:
+                tensor = sub_tensors[idx]
+            handle = hvd.allgather_async(tensor.view(-1))
+            sync_tensors = hvd.synchronize(handle)
+            offset = 0
+            for i, r in enumerate(sub_ranks):
+                if idx < 0:
+                    continue
+                original_t = sub_tensors[r]
+                numel = original_t.numel()
+                t = sync_tensors[offset:offset+numel]
+                original_t.copy_(t.view(original_t.shape))
+                offset += numel
+
+            start += nworkers
+            sub_ranks = ranks[start:start+nworkers]
+            sub_tensors = tensors[start:start+nworkers]
+
     def synchronize(self):
         for h in self.handles:
             hvd.synchronize(h)
+        self.handles.clear()
         if self.merge:
             self._tensor_group.pull_alltensors()
-            self.handles.clear()
             self._tensor_group.clear_group_flags()
 

@@ -429,6 +429,8 @@ class KFAC(optim.Optimizer):
         self.damping = group['damping']
         self.fac_update_freq = group['fac_update_freq']
         self.kfac_update_freq = group['kfac_update_freq']
+        #print('fac_update_freq: ', self.fac_update_freq)
+        #print('kfac_update_freq: ', self.kfac_update_freq)
 
         updates = {}
         handles = []
@@ -462,6 +464,10 @@ class KFAC(optim.Optimizer):
             #eigen_ranks = self._generate_eigen_ranks(epoch)
             eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
             #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
+            #inverse_As = []
+            #A_ranks = []
+            #inverse_Gs = []
+            #G_ranks = []
 
             for module in self.modules:
                 ranks_a, ranks_g = eigen_ranks[module]
@@ -470,21 +476,27 @@ class KFAC(optim.Optimizer):
                 rank_a = ranks_a[0]
                 rank_g = ranks_g[0]
 
-                self._update_inverse_A(module, ranks_a)
                 name = self.module_name_map[module]
+                self._update_inverse_A(module, ranks_a)
                 if hvd.size() > 1:
                     self.inverseA_merged_comm.bcast_async_(name, self.m_QA[module], rank_a)
                 #    h1 = hvd.broadcast_async_(self.m_QA[module], rank_a)
+                    #inverse_As.append(self.m_QA[module])
+                    #A_ranks.append(rank_a)
 
                 self._update_inverse_G(module, ranks_g)
                 if hvd.size() > 1:
                     self.inverseG_merged_comm.bcast_async_(name, self.m_QG[module], rank_g)
+                    #inverse_Gs.append(self.m_QG[module])
+                    #G_ranks.append(rank_g)
                 #    h2 = hvd.broadcast_async_(self.m_QG[module], rank_g)
                 #    handles.append((h1, h2))
 
         if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
             self.inverseA_merged_comm.synchronize()
             self.inverseG_merged_comm.synchronize()
+            #self.inverseA_merged_comm.allgather_sync(inverse_As, A_ranks)
+            #self.inverseG_merged_comm.allgather_sync(inverse_Gs, G_ranks)
         for i, module in enumerate(self.modules):
             #if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
             #    h1, h2 = handles[i]
