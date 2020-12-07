@@ -180,3 +180,41 @@ class MergedCommBcast:
             self._tensor_group.pull_alltensors()
             self._tensor_group.clear_group_flags()
 
+
+class MultiTensorComm:
+    def __init__(self):
+        self.handles = []
+        self.merged_tensors = {}
+
+    def bcast_async_(self, names, tensors, rank):
+        name = ','.join(names)
+        if name not in self.merged_tensors:
+            size = 0
+            for t in tensors:
+                size += t.numel()
+            buf = tensors[0].new_zeros(size)
+            self.merged_tensors[name] = buf
+        buf = self.merged_tensors[name]
+        offset = 0
+        for t in tensors:
+            numel = t.numel()
+            buf.data[offset:offset+numel].copy_(t.view(numel))
+            offset += numel
+        handle = hvd.broadcast_async_(buf, rank)
+        self.handles.append((handle, names, tensors))
+
+    def synchronize(self):
+        for h in self.handles:
+            handle, names, tensors = h
+            hvd.synchronize(handle)
+            name = ','.join(names)
+
+            offset = 0
+            buf = self.merged_tensors[name]
+            for t in tensors:
+                numel = t.numel()
+                t.copy_(buf.data[offset:offset+numel].view(t.shape))
+                offset += numel 
+        self.handles.clear()
+
+

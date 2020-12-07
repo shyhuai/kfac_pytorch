@@ -333,7 +333,7 @@ class KFAC(optim.Optimizer):
             d, Q = tcmm.f_symeig(block)
             Q = Q.transpose(-2, -1)
             
-            #d = torch.mul(d, (d > self.eps).float())
+            d = torch.mul(d, (d > self.eps).float())
             evalues.data[start[0]:end[0]].copy_(d)
             evectors.data[start[0]:end[0], start[1]:end[1]].copy_(Q)
 
@@ -501,7 +501,7 @@ class KFAC(optim.Optimizer):
                 pass
 
         for i, module in enumerate(self.modules):
-            if hvd.size() > 1:
+            if hvd.size() > 1 and len(handles) > 0:
                 h1, h2, h3, h4 = handles[i]
                 hvd.synchronize(h1)
                 hvd.synchronize(h2)

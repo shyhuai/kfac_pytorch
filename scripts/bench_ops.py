@@ -9,18 +9,13 @@ import reader
 import torchsso
 
 def add_value_to_diagonal(X, value):
-    if torch.cuda.is_available():
-        indices = torch.cuda.LongTensor([[i, i] for i in range(X.shape[0])])
-    else:
-        indices = torch.LongTensor([[i, i] for i in range(X.shape[0])])
-    values = X.new_ones(X.shape[0]).mul(value)
-    return X.index_put(tuple(indices.t()), values, accumulate=True)
+    return X.add_(torch.diag(X.new(X.shape[0]).fill_(value)))
 
 def compute_eigen(matrix):
     A = matrix
     #d, Q = torch.qr(A)
     #d = torch.cholesky(A); Q=None
-    #add_value_to_diagonal(A, 1e-7)
+    add_value_to_diagonal(A, 0.002)
     #d = torch.inverse(A); Q=None
     d = torchsso.utils.inv(A); Q=None
     #d, Q = tcmm.f_symeig(A)
@@ -88,6 +83,8 @@ def bench_from_log():
     for w in workloads:
         n = w[0]
         #t = bench_gemm(n, num_iters)
+        if n > 2048:
+            continue
         t = bench_ops(n, num_iters)
         total_time.append(t)
         total_sizes.append(n*n)
