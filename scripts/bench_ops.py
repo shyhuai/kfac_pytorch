@@ -95,6 +95,7 @@ def bench_from_log():
     print('Total time: ', np.sum(total_time))
     print('Max-min-mean-std: ', np.max(total_time), np.min(total_time), np.mean(total_time), np.std(total_time))
 
+
 def check():
     n = 1024
     a = torch.rand(n).float().cuda()

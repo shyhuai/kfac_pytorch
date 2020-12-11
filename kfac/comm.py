@@ -187,6 +187,7 @@ class MultiTensorComm:
         self.merged_tensors = {}
 
     def bcast_async_(self, names, tensors, rank):
+        #name = 'merged_tensor_comm_'+','.join(names)
         name = ','.join(names)
         if name not in self.merged_tensors:
             size = 0
@@ -200,6 +201,7 @@ class MultiTensorComm:
             numel = t.numel()
             buf.data[offset:offset+numel].copy_(t.view(numel))
             offset += numel
+        #handle = hvd.broadcast_async_(buf, rank, name=name)
         handle = hvd.broadcast_async_(buf, rank)
         self.handles.append((handle, names, tensors))
 
@@ -207,6 +209,7 @@ class MultiTensorComm:
         for h in self.handles:
             handle, names, tensors = h
             hvd.synchronize(handle)
+            #name = 'merged_tensor_comm_'+','.join(names)
             name = ','.join(names)
 
             offset = 0

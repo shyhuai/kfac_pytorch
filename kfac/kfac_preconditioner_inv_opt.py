@@ -310,7 +310,7 @@ class KFAC(optim.Optimizer):
                     self.m_QG[module], ranks)
         else:
             if ranks[0] == -1:
-                self._local_computer_inverse(self.m_A[module], self.m_QA[module])
+                self._local_computer_inverse(self.m_G[module], self.m_QG[module])
             else:
                 self.m_QG[module].fill_(0)
 
@@ -411,7 +411,7 @@ class KFAC(optim.Optimizer):
             vg_sum += (v[0] * module.weight.grad.data * self.lr ** 2).sum().item()
             if module.bias is not None:
                 vg_sum += (v[1] * module.bias.grad.data * self.lr ** 2).sum().item()
-        nu = min(1.0, math.sqrt(self.kl_clip / abs(vg_sum)))
+        nu = 1 #min(1.0, math.sqrt(self.kl_clip / abs(vg_sum)))
 
         for module in self.modules:
             v = updates[module]
@@ -492,11 +492,11 @@ class KFAC(optim.Optimizer):
 
                 name = self.module_name_map[module]
                 self._update_inverse_A(module, ranks_a)
-                #if hvd.size() > 1:
+                #if hvd.size() > 1 and rank_a >= 0:
                 #    self.inverseA_merged_comm.bcast_async_(name, self.m_QA[module], rank_a)
 
                 self._update_inverse_G(module, ranks_g)
-                #if hvd.size() > 1:
+                #if hvd.size() > 1 and rank_g >= 0:
                 #    self.inverseG_merged_comm.bcast_async_(name, self.m_QG[module], rank_g)
                 #if rank_a not in rank_to_tensors:
                 #    rank_to_tensors[rank_a] = []
@@ -580,7 +580,7 @@ class KFAC(optim.Optimizer):
             m_i = self.module_names.index(factor[0:-2])
             m = self.modules[m_i]
 
-            if dimension < 1025:
+            if dimension < 0:
                 bi = -1
             else:
                 bi = np.argmin(buckets)
