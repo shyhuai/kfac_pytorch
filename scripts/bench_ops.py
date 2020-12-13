@@ -11,19 +11,21 @@ import torchsso
 def add_value_to_diagonal(X, value):
     return X.add_(torch.diag(X.new(X.shape[0]).fill_(value)))
 
-def compute_eigen(matrix):
+def compute_eigen(matrix, output):
     A = matrix
     #d, Q = torch.qr(A)
     #d = torch.cholesky(A); Q=None
     add_value_to_diagonal(A, 0.002)
     #d = torch.inverse(A); Q=None
     d = torchsso.utils.inv(A); Q=None
+    if output is not None:
+        output.copy_(d)
     #d, Q = tcmm.f_symeig(A)
     #Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
     #eps = 1e-10  # for numerical stability
     #d = torch.mul(d, (d > eps).float())
-    return d, Q
+    return None
 
 def bench_ops(n, num_iters, warmup=5):
     a = torch.rand(n).float().cuda()
@@ -34,11 +36,11 @@ def bench_ops(n, num_iters, warmup=5):
     #A = torch.mm(A, A.t())
     #print('A shape: ', A.shape)
     for i in range(warmup):
-        compute_eigen(A)
+        compute_eigen(A, A)
     torch.cuda.synchronize()
     stime = time.time()
     for i in range(num_iters):
-        compute_eigen(A)
+        compute_eigen(A, A)
     torch.cuda.synchronize()
     etime = time.time()
     time_used = (etime-stime)/num_iters
@@ -83,8 +85,6 @@ def bench_from_log():
     for w in workloads:
         n = w[0]
         #t = bench_gemm(n, num_iters)
-        if n > 2048:
-            continue
         t = bench_ops(n, num_iters)
         total_time.append(t)
         total_sizes.append(n*n)
@@ -94,6 +94,43 @@ def bench_from_log():
     print('Total size: ', np.sum(total_sizes))
     print('Total time: ', np.sum(total_time))
     print('Max-min-mean-std: ', np.max(total_time), np.min(total_time), np.mean(total_time), np.std(total_time))
+    
+def bench_customize_comm():
+    import horovod.torch as hvd
+    torch.random.manual_seed(10)
+    hvd.init()
+    rank = hvd.rank()
+    local_rank = hvd.local_rank()
+    size = hvd.size()
+    torch.cuda.set_device(local_rank)
+
+    logfile = './logs/resnet50-matrixsize-A.log'
+    workloads = reader.read_tensor_sizes(logfile)
+    tensors = []
+    outputs = []
+    for w in workloads:
+        n = w[0]
+        a = torch.rand(n).float().cuda()
+        a = a.view(-1, a.size(-1))
+        A = a.t() @ (a)
+        tensors.append(A)
+        outputs.append(A.new_zeros(A.shape))
+
+        communicator = tcmm.Communicator(rank, size)
+    warmup = 5
+    niters = 10
+    for i in range(warmup):
+        communicator.multiBcast(tensors, outputs, compute_eigen)
+        communicator.synchronize()
+    torch.cuda.synchronize()
+
+    stime = time.time()
+    for i in range(niters):
+        communicator.multiBcast(tensors, outputs, compute_eigen)
+        communicator.synchronize()
+        torch.cuda.synchronize()
+    etime = time.time()
+    print('Avg time: ', (etime-stime)/niters)
 
 
 def check():
@@ -122,4 +159,5 @@ def check():
 if __name__ == '__main__':
     #bench()
     bench_from_log()
+    #bench_customize_comm()
     #check()

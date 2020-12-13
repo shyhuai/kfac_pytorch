@@ -273,8 +273,8 @@ def get_model(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     # Horovod: broadcast parameters & optimizer state.
-    #hvd.broadcast_parameters(model.state_dict(), root_rank=0)
-    #hvd.broadcast_optimizer_state(optimizer, root_rank=0)
+    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+    hvd.broadcast_optimizer_state(optimizer, root_rank=0)
 
     lrs = create_lr_schedule(hvd.size(), args.warmup_epochs, args.lr_decay)
     lr_scheduler = [LambdaLR(optimizer, lrs)]

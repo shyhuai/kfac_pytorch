@@ -50,14 +50,20 @@ public:
 //std::vector<torch::Tensor> tcmm_symeig(torch::Tensor a) {
 	void allReduce(torch::Tensor tensor);
 	//void multiBcast(vector<torch::Tensor> &tensor_list, void (*op)(torch::Tensor));
-	void multiBcast(vector<torch::Tensor> &tensor_list, const std::function<void(torch::Tensor)> &op);
+	void multiBcast(vector<torch::Tensor> &tensor_list, vector<torch::Tensor> &output_list, const std::function<void(torch::Tensor, torch::Tensor)> &op);
     void synchronize();
+    void _extendComms(int n_comms);
 private:
-    ncclUniqueId m_nccl_id;
-    ncclComm_t m_nccl_comm;
-	cudaStream_t m_stream;
+    //ncclUniqueId m_nccl_id;
+    //ncclComm_t m_nccl_comm;
+	//cudaStream_t m_stream;
+    ncclUniqueId* m_nccl_ids;
+    ncclComm_t* m_nccl_comms;
+	cudaStream_t* m_streams;
     int m_rank;
     int m_size;
+    int m_current_comm;
+    int m_num_comms;
 };
 
 #endif //F_COMMUNICATER_H

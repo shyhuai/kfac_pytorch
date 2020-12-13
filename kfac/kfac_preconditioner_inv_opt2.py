@@ -130,6 +130,7 @@ class KFAC(optim.Optimizer):
         self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=False, single_layer=False)
         self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
         self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
+        self.inverse_comm = tcmm.Communicator(hvd.rank(), hvd.size())
         self.multi_comm = MultiTensorComm()
         self.steps = 0
 
@@ -344,6 +345,7 @@ class KFAC(optim.Optimizer):
         block = add_value_to_diagonal(block, self.damping)
         inv = torchsso.utils.inv(block)
         inverse.data[0:, 0:].copy_(inv)
+        return None
 
     def _get_diag_blocks(self, module, diag_blocks):
         """Helper method for determining number of diag_blocks to use
@@ -472,54 +474,23 @@ class KFAC(optim.Optimizer):
             # reset rank iter so device get the same layers
             # to compute to take advantage of caching
             self.rank_iter.reset() 
-            handles = []
+            if hvd.size() > 1:
+                A_tensors = []; QA_outputs = []; G_tensors = []; QG_outputs = []
 
-            #eigen_ranks = self._generate_eigen_ranks(epoch)
-            eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
-            #inverse_As = []
-            #A_ranks = []
-            #inverse_Gs = []
-            #G_ranks = []
-            rank_to_tensors = {}
+                for module in self.modules:
+                    A_tensors.append(self.m_A[module])
+                    QA_outputs.append(self.m_QA[module])
+                    G_tensors.append(self.m_G[module])
+                    QG_outputs.append(self.m_QG[module])
 
-            for module in self.modules:
-                ranks_a, ranks_g = eigen_ranks[module]
-                self.m_dA_ranks[module] = ranks_a[0]
-                self.m_dG_ranks[module] = ranks_g[0]
-                rank_a = ranks_a[0]
-                rank_g = ranks_g[0]
-
-                name = self.module_name_map[module]
-                self._update_inverse_A(module, ranks_a)
-                #if hvd.size() > 1 and rank_a >= 0:
-                #    self.inverseA_merged_comm.bcast_async_(name, self.m_QA[module], rank_a)
-
-                self._update_inverse_G(module, ranks_g)
-                #if hvd.size() > 1 and rank_g >= 0:
-                #    self.inverseG_merged_comm.bcast_async_(name, self.m_QG[module], rank_g)
-                #if rank_a not in rank_to_tensors:
-                #    rank_to_tensors[rank_a] = []
-                #rank_to_tensors[rank_a].append((name, self.m_QA[module], self.m_QG[module]))
-                if hvd.size() > 1 and rank_g >= 0:
-                    self.multi_comm.bcast_async_([name], [self.m_QA[module], self.m_QG[module]], rank_g)
-            #if hvd.size() > 1:
-            #    for rank in rank_to_tensors.keys():
-            #        names = []
-            #        tensors = []
-            #        for name, ta, tb in rank_to_tensors[rank]:
-            #            names.append(name)
-            #            tensors.append(ta)
-            #            tensors.append(tb)
-            #        self.multi_comm.bcast_async_(names, tensors, rank)
-
-        if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
-            #self.inverseA_merged_comm.synchronize()
-            #self.inverseG_merged_comm.synchronize()
-            self.multi_comm.synchronize()
+                self.inverse_comm.multiBcast(A_tensors+G_tensors, QA_outputs+QG_outputs, self._local_computer_inverse)
+                self.inverse_comm.synchronize()
+            else:
+                for module in self.modules:
+                    self._update_inverse_A(module, [-1])
+                    self._update_inverse_G(module, [-1])
 
         for i, module in enumerate(self.modules):
-
             grad = self._get_grad(module)
             precon_grad = self._get_preconditioned_grad(module, grad)
             updates[module] = precon_grad
