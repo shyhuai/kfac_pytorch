@@ -118,8 +118,8 @@ class KFAC(optim.Optimizer):
         #self.fw_factor_handles = []
         #self.bw_factor_handles = []
         self._register_modules(model)
-        self.fw_merged_comm = MergedComm(self.module_names, prefix='forward', merge=True)
-        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=True)
+        self.fw_merged_comm = MergedComm(self.module_names, prefix='forward', merge=True, single_layer=False)
+        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=True, single_layer=False)
 
         self.steps = 0
 
