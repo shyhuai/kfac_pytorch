@@ -81,6 +81,8 @@ def initialize():
                         help='label smoothing (default 0.1)')
 
     # KFAC Parameters
+    parser.add_argument('--kfac-name', type=str, default='inverse',
+            help='choises: %s' % kfac.kfac_mappers.keys() + ', default: '+'inverse')
     parser.add_argument('--kfac-update-freq', type=int, default=10,
                         help='iters between kfac inv ops (0 = no kfac) (default: 10)')
     parser.add_argument('--kfac-cov-update-freq', type=int, default=1,
@@ -161,7 +163,7 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/debug_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    logfile = './logs/debug_imagenet_resnet50_kfac{}_gpu{}_bs{}_%s.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name)
     #logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
@@ -238,7 +240,8 @@ def get_model(args):
                           momentum=args.momentum, weight_decay=args.wd)
 
     if args.kfac_update_freq > 0:
-        preconditioner = kfac.KFAC(
+        KFAC = kfac.get_kfac_module(args.kfac_name)
+        preconditioner = KFAC(
                 model, lr=args.base_lr, factor_decay=args.stat_decay,
                 damping=args.damping, kl_clip=args.kl_clip,
                 fac_update_freq=args.kfac_cov_update_freq,

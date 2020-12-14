@@ -1,6 +1,6 @@
 #!/bin/bash
 nworkers="${nworkers:-4}"
-rdma="${rdma:-0}"
+rdma="${rdma:-1}"
 MPIPATH=/home/esetstore/.local/openmpi-4.0.1
 PY=/home/esetstore/pytorch1.4/bin/python
 
@@ -25,4 +25,5 @@ fi
 
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
-    $PY scripts/bench_ops.py
+    $PY scripts/test_allgather.py
+#    $PY scripts/bench_ops.py
