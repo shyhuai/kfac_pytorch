@@ -83,6 +83,8 @@ def initialize():
     # KFAC Parameters
     parser.add_argument('--kfac-name', type=str, default='inverse',
             help='choises: %s' % kfac.kfac_mappers.keys() + ', default: '+'inverse')
+    parser.add_argument('--exclude-parts', type=str, default='',
+            help='choises: CommunicateInverse,ComputeInverse,CommunicateFactor,ComputeFactor')
     parser.add_argument('--kfac-update-freq', type=int, default=10,
                         help='iters between kfac inv ops (0 = no kfac) (default: 10)')
     parser.add_argument('--kfac-cov-update-freq', type=int, default=1,
@@ -248,7 +250,7 @@ def get_model(args):
                 kfac_update_freq=args.kfac_update_freq,
                 diag_blocks=args.diag_blocks,
                 diag_warmup=args.diag_warmup,
-                distribute_layer_factors=args.distribute_layer_factors)
+                distribute_layer_factors=args.distribute_layer_factors, exclude_parts=args.exclude_parts)
         kfac_param_scheduler = kfac.KFACParamScheduler(
                 preconditioner,
                 damping_alpha=args.damping_alpha,
@@ -408,7 +410,7 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
-        validate(epoch, model, loss_func, val_loader, args)
+        #validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     if args.verbose:

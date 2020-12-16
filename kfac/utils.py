@@ -269,9 +269,8 @@ class ComputeG:
         if batch_averaged:
             g = g * batch_size
         g = g * spatial_size
-        cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
-        #cov_g = g.t() @ (g / g.size(0))
-
+        #cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
+        cov_g = g.t() @ (g / g.size(0))
         return cov_g
 
     @staticmethod
@@ -282,9 +281,9 @@ class ComputeG:
         #    #g = g.view(-1, g.shape[-1])
         #    g = torch.mean(g, list(range(len(g.shape)))[1:-1])
         if batch_averaged:
-            cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
-            #cov_g = g.t() @ (g * batch_size)
+            #cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
+            cov_g = g.t() @ (g * batch_size)
         else:
-            cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
-            #cov_g = g.t() @ (g / batch_size)
+            #cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
+            cov_g = g.t() @ (g / batch_size)
         return cov_g

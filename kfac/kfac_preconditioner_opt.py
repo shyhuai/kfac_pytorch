@@ -77,7 +77,8 @@ class KFAC(optim.Optimizer):
                  diag_warmup=0,
                  distribute_layer_factors=None,
                  sparse=False,
-                 sparse_ratio=0.01):
+                 sparse_ratio=0.01,
+                 exclude_parts=''):
 
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
