@@ -150,7 +150,7 @@ class ComputeA:
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        a = a/spatial_size
+        a = a.div_(spatial_size)
         batch_size = a.size(0)
         return a
 
@@ -173,7 +173,7 @@ class ComputeA:
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        a = a/spatial_size
+        a = a.div_(spatial_size)
         # FIXME(CW): do we need to divide the output feature map's size?
         return a.t() @ (a / batch_size)
         #return torch.einsum('ki,kj->ij', a, a/batch_size) 
