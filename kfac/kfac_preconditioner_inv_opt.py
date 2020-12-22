@@ -600,7 +600,7 @@ class KFAC(optim.Optimizer):
             m_i = self.module_names.index(factor[0:-2])
             m = self.modules[m_i]
 
-            if dimension < 0:
+            if dimension < 1024:
                 bi = -1
             else:
                 bi = np.argmin(buckets)
