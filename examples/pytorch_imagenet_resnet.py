@@ -150,7 +150,8 @@ def initialize():
 
     # Horovod: broadcast resume_from_epoch from rank 0 (which will have
     # checkpoints) to other ranks.
-    args.resume_from_epoch = hvd.broadcast(torch.tensor(args.resume_from_epoch),
+    if hvd.size() > 1:
+        args.resume_from_epoch = hvd.broadcast(torch.tensor(args.resume_from_epoch),
                                            root_rank=0,
                                            name='resume_from_epoch').item()
 
@@ -278,8 +279,9 @@ def get_model(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     # Horovod: broadcast parameters & optimizer state.
-    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
-    hvd.broadcast_optimizer_state(optimizer, root_rank=0)
+    if hvd.size() > 1:
+        hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+        hvd.broadcast_optimizer_state(optimizer, root_rank=0)
 
     lrs = create_lr_schedule(hvd.size(), args.warmup_epochs, args.lr_decay)
     lr_scheduler = [LambdaLR(optimizer, lrs)]
@@ -353,6 +355,8 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
                     logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
                     iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
                 avg_time = 0.0
+            if batch_idx > 1100:
+                break
         logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
 
     if not STEP_FIRST:

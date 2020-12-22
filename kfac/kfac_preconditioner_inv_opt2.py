@@ -87,7 +87,8 @@ class KFAC(optim.Optimizer):
                  diag_warmup=0,
                  distribute_layer_factors=None,
                  sparse=False,
-                 sparse_ratio=0.01):
+                 sparse_ratio=0.01,
+                 exclude_parts=''):
 
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -154,6 +155,10 @@ class KFAC(optim.Optimizer):
         self.diag_blocks = diag_blocks
         self.diag_warmup = diag_warmup
         self.batch_averaged = batch_averaged
+        self.exclude_communicate_inverse = True if exclude_parts.find('CommunicateInverse') >=0 else False
+        self.exclude_compute_inverse = True if exclude_parts.find('ComputeInverse') >=0 else False
+        self.exclude_communicate_factor = True if exclude_parts.find('CommunicateFactor') >=0 else False
+        self.exclude_compute_factor = True if exclude_parts.find('ComputeFactor') >=0 else False
         
         # Compute ideal value for `distribute_layer_factors` based on
         # registered module count
@@ -176,10 +181,12 @@ class KFAC(optim.Optimizer):
     def _compute_forward_factor(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
             self.m_a[module] = input[0].data
-            self._update_module_A(module)
-            if hvd.size() > 1:
-                name = self.module_name_map[module]
-                self.fw_merged_comm.allreduce_async_(name, self.m_A[module].data)
+            if not self.exclude_compute_factor:
+                self._update_module_A(module)
+            if not self.exclude_communicate_factor:
+                if hvd.size() > 1:
+                    name = self.module_name_map[module]
+                    self.fw_merged_comm.allreduce_async_(name, self.m_A[module].data)
 
     def _save_grad_output(self, module, grad_input, grad_output):
         """Hook for saving gradient w.r.t output"""
@@ -189,10 +196,12 @@ class KFAC(optim.Optimizer):
     def _compute_backward_factor(self, module, grad_input, grad_output):
         if self.steps % self.fac_update_freq == 0:
             self.m_g[module] = grad_output[0].data
-            self._update_module_G(module)
-            if hvd.size() > 1:
-                name = self.module_name_map[module]
-                self.bw_merged_comm.allreduce_async_(name, self.m_G[module].data)
+            if not self.exclude_compute_factor:
+                self._update_module_G(module)
+            if not self.exclude_communicate_factor:
+                if hvd.size() > 1:
+                    name = self.module_name_map[module]
+                    self.bw_merged_comm.allreduce_async_(name, self.m_G[module].data)
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
@@ -413,7 +422,10 @@ class KFAC(optim.Optimizer):
             vg_sum += (v[0] * module.weight.grad.data * self.lr ** 2).sum().item()
             if module.bias is not None:
                 vg_sum += (v[1] * module.bias.grad.data * self.lr ** 2).sum().item()
-        nu = min(1.0, math.sqrt(self.kl_clip / abs(vg_sum)))
+        if self.exclude_communicate_inverse:
+            nu = 1
+        else:
+            nu = min(1.0, math.sqrt(self.kl_clip / abs(vg_sum)))
 
         for module in self.modules:
             v = updates[module]

@@ -404,9 +404,10 @@ class KFAC(optim.Optimizer):
             vg_sum += (v[0] * module.weight.grad.data * self.lr ** 2).sum().item()
             if module.bias is not None:
                 vg_sum += (v[1] * module.bias.grad.data * self.lr ** 2).sum().item()
-        nu = min(1.0, math.sqrt(self.kl_clip / abs(vg_sum)))
         if self.exclude_communicate_inverse:
             nu = 1
+        else:
+            nu = min(1.0, math.sqrt(self.kl_clip / abs(vg_sum)))
 
         for module in self.modules:
             v = updates[module]
