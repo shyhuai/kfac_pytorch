@@ -43,6 +43,18 @@ def read_tensor_sizes(logfile):
     print(workloads)
     return workloads
 
+def read_tensorsize_vs_time(logfile):
+    with open(logfile) as f:
+        sizes = []
+        times = []
+        for line in f.readlines():
+            items = line.split(',')
+            if len(items) == 2:
+                size = int(items[0])
+                t = float(items[1][:-1])
+                sizes.append(size)
+                times.append(t)
+        return sizes, times
 
 def read_times_from_nccl_log(logfile, mode='allreduce', start=0, end=512*1024*1024, original=False, bw=False):
     print('fn: ', logfile)
