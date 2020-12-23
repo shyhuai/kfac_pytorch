@@ -18,24 +18,38 @@ def _fit_linear_function(x, y):
     #beta, alpha = np.linalg.lstsq(A, Y, rcond=None)[0]
     return alpha, beta
 
-
-
 def model_bcast_log():
-    #fn='logs/nccl-bcast-n16IB.log'
-    fn='logs/nccl-bcast-n64.log'
-    sizes, comms, errors = reader.read_times_from_nccl_log(fn, original=True)
+    fn='logs/nccl-bcast-n16IB.log'
+    #fn='logs/nccl-bcast-n64.log'
+    sizes, comms, errors = reader.read_times_from_nccl_log(fn, start=1024, end=1024*1024*512, original=True)
     print('sizes: ', sizes)
     print('comms: ', comms)
     print('errors: ', errors)
     alpha, beta = _fit_linear_function(np.array(sizes), comms)
+    print('alpha: ', alpha, ', beta: ', beta)
     py = alpha + beta * np.array(sizes)
 
     fig, ax = plt.subplots(figsize=(8.,4))
-    ax.plot(comms, marker='o', label='measured')
-    ax.plot(py, marker='^', label='fit')
+    ax.plot(sizes, comms, marker='o', label='measured')
+    ax.plot(sizes, py, marker='^', label='fit')
+    plt.show()
+
+def model_inverse_compute_log():
+    fn = 'logs/inverse-resnet50.log'
+    sizes, times = reader.read_tensorsize_vs_time(fn)
+    print('sizes: ', sizes)
+    print('times: ', times)
+    alpha, beta = _fit_linear_function(np.array(sizes), times)
+    print('alpha: ', alpha, ', beta: ', beta)
+    py = alpha + beta * np.array(sizes)
+
+    fig, ax = plt.subplots(figsize=(8.,4))
+    ax.scatter(sizes, times, marker='o', label='measured')
+    ax.scatter(sizes, py, marker='^', label='fit')
     plt.show()
 
 
 if __name__ == '__main__':
     model_bcast_log()
+    #model_inverse_compute_log()
 
