@@ -11,6 +11,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
+from kfac.utils import estimate_bcast_time, estimate_inverse_time 
 from kfac.comm import MergedComm, MergedCommBcast, MultiTensorComm
 import logging
 import tcmm
@@ -579,6 +580,10 @@ class KFAC(optim.Optimizer):
             name = self.module_names[i]
             a_dimension = self.m_A[m].shape[1]
             g_dimension = self.m_G[m].shape[1]
+
+            if hvd.rank() == 0:
+                logger.info('A Name: %s, shape: %s', m, self.m_A[m].shape)
+                logger.info('G Name: %s, shape: %s', m, self.m_G[m].shape)
             dimensions.append(a_dimension)
             module_factors.append(name+'-A')
             dimensions.append(g_dimension)
@@ -600,7 +605,13 @@ class KFAC(optim.Optimizer):
             m_i = self.module_names.index(factor[0:-2])
             m = self.modules[m_i]
 
+            bcast_time = estimate_bcast_time(dimension*dimension, hvd.size())
+            inverse_time = estimate_inverse_time(dimension)
+            #if hvd.rank() == 0:
+            #    print('dimension: %d, bcast_time: %f, inverse_time: %f' % (dimension, bcast_time, inverse_time))
+
             if dimension < 1024:
+            #if inverse_time < bcast_time: 
                 bi = -1
             else:
                 bi = np.argmin(buckets)

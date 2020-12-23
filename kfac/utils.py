@@ -287,3 +287,22 @@ class ComputeG:
             #cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
             cov_g = g.t() @ (g / batch_size)
         return cov_g
+
+def estimate_bcast_time(n, nworkers):
+    if nworkers == 16:
+        return 2*5*4*1.2636384924990847e-05+1.0847816780156976e-10*n*4
+    return 2*5*4*6.374037687522862e-06 + 1.840345743984339e-10* n*4
+
+inverse_times = None 
+def estimate_inverse_time(dimension, dnn='resnet'):
+    global inverse_times
+    if inverse_times is None:
+        inverse_times = {}
+        with open('logs/inverse-%s.log'%dnn) as f:
+            for line in f.readlines():
+                items = line.split(',')
+                if len(items) == 2:
+                    size = int(items[0])
+                    t = float(items[1][:-1])
+                    inverse_times[size] = t
+    return inverse_times[dimension]
