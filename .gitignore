@@ -1,4 +1,7 @@
 logs/
+logs
+kfac-logs/
+kfac-logs
 sbatch_logs/
 saved_logs/
 
