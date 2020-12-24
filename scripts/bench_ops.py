@@ -47,15 +47,17 @@ def bench_ops(n, num_iters, warmup=5):
     return time_used
 
 def bench_gemm(n, num_iters, warmup=5):
-    a = torch.rand(n).float().cuda()
-    a = a.view(-1, a.size(-1))
+    a = torch.rand(n, n).float().cuda()
+    #a = a.view(-1, a.size(-1))
     #print('a shape: ', a.shape)
     for i in range(warmup):
-        A = a.t() @ (a)
+        #A = a.t() @ (a)
+        tcmm.f_gemm_ex(a.t(), a)
     torch.cuda.synchronize()
     stime = time.time()
     for i in range(num_iters):
-        A = a.t() @ (a)
+        #A = a.t() @ (a)
+        tcmm.f_gemm_ex(a.t(), a)
     torch.cuda.synchronize()
     etime = time.time()
     time_used = (etime-stime)/num_iters
@@ -63,7 +65,7 @@ def bench_gemm(n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(1024, 2048, 64) 
+    ns = range(2048, 8192, 1024) 
     #ns = range(3, 512+64, 64) 
     #ns = [3]
     #ns = ns+range(2**20, 2**29, 2**20) 
@@ -72,8 +74,8 @@ def bench():
         num_iters = 50
         if n > 2**19:
             num_iters = 10
-        t = bench_ops(n, num_iters)
-        #t = bench_gemm(n, num_iters)
+        #t = bench_ops(n, num_iters)
+        t = bench_gemm(n, num_iters)
         print('%d,%f'%(n,t))
 
 def bench_from_log():
@@ -158,7 +160,7 @@ def check():
     #print('bA1: ', _goback(d1, Q1))
 
 if __name__ == '__main__':
-    #bench()
-    bench_from_log()
+    bench()
+    #bench_from_log()
     #bench_customize_comm()
     #check()

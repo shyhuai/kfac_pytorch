@@ -4,9 +4,10 @@ import numpy as np
 
 
 class TensorGroup:
-    def __init__(self, tensor_names, single_layer):
+    def __init__(self, tensor_names, single_layer, tensors=None):
         self._tensor_names = tensor_names
         self._single_layer = single_layer
+        self._tensors = tensors
         self._groups, self._group_indices_by_name = self._generate_groups()
         self._group_flags = [[0]*len(g) for g in self._groups]
         self._group_keys = [':'.join(g) for g in self._groups]
@@ -77,9 +78,14 @@ class TensorGroup:
                 t.copy_(buf.data[offset:offset+numel].view(t.shape))
                 offset += numel 
 
+    def update_groups(tensors):
+        if self._tensors is not None:
+            return
+        self._tensors = tensors
+
 
 class MergedComm:
-    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False):
+    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False, symmetric=False):
         self._tensor_names = tensor_names
         self.merge = merge
         self.prefix = prefix
@@ -89,11 +95,17 @@ class MergedComm:
             self._tensor_group = None
         self._name_tensors = {}
         self.handles = []
+        self.symmetric = symmetric
 
     def allreduce_async_(self, name, tensor, op=hvd.Average):
         if self.merge:
-            new_name, new_tensor = self._tensor_group.push_tensor(name, tensor)
-            self._name_tensors[name] = tensor
+            if self.symmetric:
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+            else:
+                comm_tensor = tensor
+            self._name_tensors[name] = (tensor, comm_tensor)
+            new_name, new_tensor = self._tensor_group.push_tensor(name, comm_tensor)
             if new_tensor is not None:
                 current_stream = torch.cuda.current_stream()
                 current_stream.synchronize()
@@ -101,17 +113,30 @@ class MergedComm:
                 handle = hvd.allreduce_async_(new_tensor, op=op, name=self.prefix+new_name)
                 self.handles.append(handle)
         else:
-            handle = hvd.allreduce_async_(tensor, op=hvd.Average)
+            if self.symmetric:
+                upper_indices = torch.tril_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+            else:
+                comm_tensor = tensor
+            self._name_tensors[name] = (tensor, comm_tensor)
+            handle = hvd.allreduce_async_(comm_tensor, op=hvd.Average)
             self.handles.append(handle)
 
     def synchronize(self):
         for h in self.handles:
             hvd.synchronize(h)
-        self.handles.clear()
         if self.merge:
             self._tensor_group.pull_alltensors()
             self._tensor_group.clear_group_flags()
-
+        if self.symmetric:
+            for name in self._name_tensors:
+                tensor, comm_tensor = self._name_tensors[name]
+                lower_indices = torch.tril_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
+                tensor[upper_indices[0], upper_indices[1]] = comm_tensor
+                tensor[lower_indices[0], lower_indices[1]] = tensor.t()[lower_indices[0], lower_indices[1]]
+            self._name_tensors.clear()
+        self.handles.clear()
 
 class MergedCommBcast:
     def __init__(self, tensor_names, prefix='flag'):

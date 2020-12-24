@@ -28,7 +28,7 @@ setup(
                 'src/tcmm.cpp',
                 'src/tcmm_kernel.cu',
             ],
-            libraries=['cusolver', 'nccl', 'mpi'],
+            libraries=['cusolver', 'nccl', 'mpi', 'cublas'],
             library_dirs=['objs', CUDA_DIR+'/lib64', NCCL_DIR+'/lib', MPI_DIR+'/lib'],
             # extra_compile_args=['-g']
         )
