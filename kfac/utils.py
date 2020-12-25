@@ -2,6 +2,9 @@ import itertools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tcmm
+
+TENSOR_CORE=True
 
 def try_contiguous(x):
     if not x.is_contiguous():
@@ -150,7 +153,7 @@ class ComputeA:
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        a = a/spatial_size
+        a = a.div_(spatial_size)
         batch_size = a.size(0)
         return a
 
@@ -173,10 +176,14 @@ class ComputeA:
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        a = a/spatial_size
+        a = a.div_(spatial_size)
         # FIXME(CW): do we need to divide the output feature map's size?
-        #return a.t() @ (a / batch_size)
-        return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        #return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        #return a.t() @ (a / batch_size) 
+        if TENSOR_CORE:
+            return tcmm.f_gemm_ex(a.t(), a/batch_size)
+        else:
+            return a.t() @ (a / batch_size) 
 
     @staticmethod
     def linear(a, layer):
@@ -187,8 +194,12 @@ class ComputeA:
         #    a = torch.mean(a, list(range(len(a.shape)))[1:-1])
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
+        #return torch.einsum('ki,kj->ij', a, a/batch_size) 
         #return a.t() @ (a / batch_size)
-        return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        if TENSOR_CORE:
+            return tcmm.f_gemm_ex(a.t(), a/batch_size)
+        else:
+            return a.t() @ (a / batch_size)
 
 
 class ComputeG:
@@ -269,9 +280,12 @@ class ComputeG:
         if batch_averaged:
             g = g * batch_size
         g = g * spatial_size
-        cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
+        #cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
         #cov_g = g.t() @ (g / g.size(0))
-
+        if TENSOR_CORE:
+            cov_g = tcmm.f_gemm_ex(g.t(), g/g.size(0))
+        else:
+            cov_g = g.t() @ (g / g.size(0))
         return cov_g
 
     @staticmethod
@@ -282,9 +296,36 @@ class ComputeG:
         #    #g = g.view(-1, g.shape[-1])
         #    g = torch.mean(g, list(range(len(g.shape)))[1:-1])
         if batch_averaged:
-            cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
+            #cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
             #cov_g = g.t() @ (g * batch_size)
+            if TENSOR_CORE:
+                cov_g = tcmm.f_gemm_ex(g.t(), g*batch_size)
+            else:
+                cov_g = g.t() @ (g * batch_size)
         else:
-            cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
+            #cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
             #cov_g = g.t() @ (g / batch_size)
+            if TENSOR_CORE:
+                cov_g = tcmm.f_gemm_ex(g.t(), g/batch_size)
+            else:
+                cov_g = g.t() @ (g / batch_size)
         return cov_g
+
+def estimate_bcast_time(n, nworkers):
+    if nworkers == 16:
+        return 2*5*4*1.2636384924990847e-05+1.0847816780156976e-10*n*4
+    return 2*5*4*6.374037687522862e-06 + 1.840345743984339e-10* n*4
+
+inverse_times = None 
+def estimate_inverse_time(dimension, dnn='resnet'):
+    global inverse_times
+    if inverse_times is None:
+        inverse_times = {}
+        with open('logs/inverse-%s.log'%dnn) as f:
+            for line in f.readlines():
+                items = line.split(',')
+                if len(items) == 2:
+                    size = int(items[0])
+                    t = float(items[1][:-1])
+                    inverse_times[size] = t
+    return inverse_times[dimension]

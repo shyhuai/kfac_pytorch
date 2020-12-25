@@ -33,7 +33,7 @@ import imagenet_resnet as models
 from utils import *
 
 import kfac
-os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '8' 
+os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '10' 
 
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
 
@@ -81,6 +81,10 @@ def initialize():
                         help='label smoothing (default 0.1)')
 
     # KFAC Parameters
+    parser.add_argument('--kfac-name', type=str, default='inverse',
+            help='choises: %s' % kfac.kfac_mappers.keys() + ', default: '+'inverse')
+    parser.add_argument('--exclude-parts', type=str, default='',
+            help='choises: CommunicateInverse,ComputeInverse,CommunicateFactor,ComputeFactor')
     parser.add_argument('--kfac-update-freq', type=int, default=10,
                         help='iters between kfac inv ops (0 = no kfac) (default: 10)')
     parser.add_argument('--kfac-cov-update-freq', type=int, default=1,
@@ -146,7 +150,8 @@ def initialize():
 
     # Horovod: broadcast resume_from_epoch from rank 0 (which will have
     # checkpoints) to other ranks.
-    args.resume_from_epoch = hvd.broadcast(torch.tensor(args.resume_from_epoch),
+    if hvd.size() > 1:
+        args.resume_from_epoch = hvd.broadcast(torch.tensor(args.resume_from_epoch),
                                            root_rank=0,
                                            name='resume_from_epoch').item()
 
@@ -161,7 +166,8 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/debug_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    logfile = './logs/timing_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/debug_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
@@ -238,14 +244,15 @@ def get_model(args):
                           momentum=args.momentum, weight_decay=args.wd)
 
     if args.kfac_update_freq > 0:
-        preconditioner = kfac.KFAC(
+        KFAC = kfac.get_kfac_module(args.kfac_name)
+        preconditioner = KFAC(
                 model, lr=args.base_lr, factor_decay=args.stat_decay,
                 damping=args.damping, kl_clip=args.kl_clip,
                 fac_update_freq=args.kfac_cov_update_freq,
                 kfac_update_freq=args.kfac_update_freq,
                 diag_blocks=args.diag_blocks,
                 diag_warmup=args.diag_warmup,
-                distribute_layer_factors=args.distribute_layer_factors)
+                distribute_layer_factors=args.distribute_layer_factors, exclude_parts=args.exclude_parts)
         kfac_param_scheduler = kfac.KFACParamScheduler(
                 preconditioner,
                 damping_alpha=args.damping_alpha,
@@ -273,8 +280,9 @@ def get_model(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     # Horovod: broadcast parameters & optimizer state.
-    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
-    hvd.broadcast_optimizer_state(optimizer, root_rank=0)
+    if hvd.size() > 1:
+        hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+        hvd.broadcast_optimizer_state(optimizer, root_rank=0)
 
     lrs = create_lr_schedule(hvd.size(), args.warmup_epochs, args.lr_decay)
     lr_scheduler = [LambdaLR(optimizer, lrs)]
@@ -348,6 +356,8 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
                     logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
                     iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
                 avg_time = 0.0
+            if batch_idx > 1100:
+                break
         logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
 
     if not STEP_FIRST:
@@ -405,7 +415,7 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
-        validate(epoch, model, loss_func, val_loader, args)
+        #validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     if args.verbose:

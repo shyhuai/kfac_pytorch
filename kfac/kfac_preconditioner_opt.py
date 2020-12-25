@@ -11,6 +11,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
+from kfac.comm import MergedComm 
 import logging
 import tcmm
 
@@ -76,7 +77,8 @@ class KFAC(optim.Optimizer):
                  diag_warmup=0,
                  distribute_layer_factors=None,
                  sparse=False,
-                 sparse_ratio=0.01):
+                 sparse_ratio=0.01,
+                 exclude_parts=''):
 
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -112,9 +114,13 @@ class KFAC(optim.Optimizer):
         self.known_modules = {'Linear', 'Conv2d'}
         self.modules = []
         self.module_names = []
-        self.fw_factor_handles = []
-        self.bw_factor_handles = []
+        self.name_module_map = {}
+        self.module_name_map = {}
+        #self.fw_factor_handles = []
+        #self.bw_factor_handles = []
         self._register_modules(model)
+        self.fw_merged_comm = MergedComm(self.module_names, prefix='forward', merge=True, single_layer=False)
+        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=True, single_layer=False)
 
         self.steps = 0
 
@@ -161,8 +167,9 @@ class KFAC(optim.Optimizer):
         if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
             self.m_a[module] = input[0].data
             self._update_module_A(module)
-            handle = hvd.allreduce_async_(self.m_A[module].data, op=hvd.Average)
-            self.fw_factor_handles.append(handle)
+            if hvd.size() > 1:
+                name = self.module_name_map[module]
+                self.fw_merged_comm.allreduce_async_(name, self.m_A[module].data)
 
     def _save_grad_output(self, module, grad_input, grad_output):
         """Hook for saving gradient w.r.t output"""
@@ -173,8 +180,9 @@ class KFAC(optim.Optimizer):
         if self.steps % self.fac_update_freq == 0:
             self.m_g[module] = grad_output[0].data
             self._update_module_G(module)
-            handle = hvd.allreduce_async_(self.m_G[module].data, op=hvd.Average)
-            self.bw_factor_handles.append(handle)
+            if hvd.size() > 1:
+                name = self.module_name_map[module]
+                self.bw_merged_comm.allreduce_async_(name, self.m_G[module].data)
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
@@ -183,12 +191,12 @@ class KFAC(optim.Optimizer):
             classname = module.__class__.__name__
             if classname in self.known_modules:
                 self.modules.append(module)
-                #module.register_forward_pre_hook(self._save_input)
                 module.register_forward_pre_hook(self._compute_forward_factor)
-                #module.register_backward_hook(self._save_grad_output)
                 module.register_backward_hook(self._compute_backward_factor)
                 module_name = 'module_name_%s_%d' % (classname, name_idx)
                 self.module_names.append(module_name)
+                self.name_module_map[module_name] = module
+                self.module_name_map[module] = module_name
                 name_idx += 1
 
     def _init_A(self, factor, module):
@@ -326,7 +334,7 @@ class KFAC(optim.Optimizer):
             d, Q = tcmm.f_symeig(block)
             Q = Q.transpose(-2, -1)
             
-            #d = torch.mul(d, (d > self.eps).float())
+            d = torch.mul(d, (d > self.eps).float())
             evalues.data[start[0]:end[0]].copy_(d)
             evectors.data[start[0]:end[0], start[1]:end[1]].copy_(Q)
 
@@ -442,14 +450,16 @@ class KFAC(optim.Optimizer):
         else:
             diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
 
-        if self.steps % self.fac_update_freq == 0:
+        if hvd.size() > 1 and self.steps % self.fac_update_freq == 0:
+            self.fw_merged_comm.synchronize()
+            self.bw_merged_comm.synchronize()
 
-            for handle in self.fw_factor_handles:
-                hvd.synchronize(handle)
-            self.fw_factor_handles.clear()
-            for handle in self.bw_factor_handles:
-                hvd.synchronize(handle)
-            self.bw_factor_handles.clear()
+            #for handle in self.fw_factor_handles:
+            #    hvd.synchronize(handle)
+            #self.fw_factor_handles.clear()
+            #for handle in self.bw_factor_handles:
+            #    hvd.synchronize(handle)
+            #self.bw_factor_handles.clear()
 
         # if we are switching from no diag approx to approx, we need to clear
         # off-block-diagonal elements
@@ -492,7 +502,7 @@ class KFAC(optim.Optimizer):
                 pass
 
         for i, module in enumerate(self.modules):
-            if hvd.size() > 1:
+            if hvd.size() > 1 and len(handles) > 0:
                 h1, h2, h3, h4 = handles[i]
                 hvd.synchronize(h1)
                 hvd.synchronize(h2)

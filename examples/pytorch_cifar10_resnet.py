@@ -12,12 +12,12 @@ torch.multiprocessing.set_start_method('spawn')
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import LambdaLR
 from torchvision import datasets, transforms, models
 #import torch.utils.data.distributed
 
-from torchsummary import summary
+#from torchsummary import summary
 import cifar_resnet as resnet
 #from tqdm import tqdm
 from utils import *
@@ -184,8 +184,8 @@ elif args.model.lower() == "resnet110":
 if args.cuda:
     model.cuda()
 
-if verbose:
-    summary(model, (3, 32, 32))
+#if verbose:
+#    summary(model, (3, 32, 32))
 
 criterion = nn.CrossEntropyLoss()
 args.base_lr = args.base_lr * hvd.size()

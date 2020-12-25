@@ -9,26 +9,23 @@ import reader
 import torchsso
 
 def add_value_to_diagonal(X, value):
-    if torch.cuda.is_available():
-        indices = torch.cuda.LongTensor([[i, i] for i in range(X.shape[0])])
-    else:
-        indices = torch.LongTensor([[i, i] for i in range(X.shape[0])])
-    values = X.new_ones(X.shape[0]).mul(value)
-    return X.index_put(tuple(indices.t()), values, accumulate=True)
+    return X.add_(torch.diag(X.new(X.shape[0]).fill_(value)))
 
-def compute_eigen(matrix):
+def compute_eigen(matrix, output):
     A = matrix
     #d, Q = torch.qr(A)
     #d = torch.cholesky(A); Q=None
-    #add_value_to_diagonal(A, 1e-7)
+    add_value_to_diagonal(A, 0.002)
     #d = torch.inverse(A); Q=None
     d = torchsso.utils.inv(A); Q=None
+    if output is not None:
+        output.copy_(d)
     #d, Q = tcmm.f_symeig(A)
     #Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
     #eps = 1e-10  # for numerical stability
     #d = torch.mul(d, (d > eps).float())
-    return d, Q
+    return None
 
 def bench_ops(n, num_iters, warmup=5):
     a = torch.rand(n).float().cuda()
@@ -39,26 +36,34 @@ def bench_ops(n, num_iters, warmup=5):
     #A = torch.mm(A, A.t())
     #print('A shape: ', A.shape)
     for i in range(warmup):
-        compute_eigen(A)
+        compute_eigen(A, A)
     torch.cuda.synchronize()
     stime = time.time()
     for i in range(num_iters):
-        compute_eigen(A)
+        compute_eigen(A, A)
     torch.cuda.synchronize()
     etime = time.time()
     time_used = (etime-stime)/num_iters
     return time_used
 
 def bench_gemm(n, num_iters, warmup=5):
-    a = torch.rand(n).float().cuda()
-    a = a.view(-1, a.size(-1))
+    TENSOR_CORE=True
+    a = torch.rand(1024, n).float().cuda()
+    #a = a.view(-1, a.size(-1))
     #print('a shape: ', a.shape)
     for i in range(warmup):
-        A = a.t() @ (a)
+        #A = a.t() @ (a)
+        if TENSOR_CORE:
+            tcmm.f_gemm_ex(a.t(), a)
+        else:
+            A = a.t() @ (a)
     torch.cuda.synchronize()
     stime = time.time()
     for i in range(num_iters):
-        A = a.t() @ (a)
+        if TENSOR_CORE:
+            tcmm.f_gemm_ex(a.t(), a)
+        else:
+            A = a.t() @ (a)
     torch.cuda.synchronize()
     etime = time.time()
     time_used = (etime-stime)/num_iters
@@ -66,8 +71,8 @@ def bench_gemm(n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(1024, 2048, 64) 
-    #ns = range(3, 512+64, 64) 
+    ns = range(2048, 8192, 1024) 
+    #ns = range(64, 512+64, 64) 
     #ns = [3]
     #ns = ns+range(2**20, 2**29, 2**20) 
     #ns = range(2**20, 2**29, 2**20) 
@@ -75,22 +80,67 @@ def bench():
         num_iters = 50
         if n > 2**19:
             num_iters = 10
-        t = bench_ops(n, num_iters)
-        #t = bench_gemm(n, num_iters)
+        #t = bench_ops(n, num_iters)
+        t = bench_gemm(n, num_iters)
         print('%d,%f'%(n,t))
 
 def bench_from_log():
-    workloads = reader.read_tensor_sizes('./logs/resnet50-matrixsize.log')
+    #logfile = './logs/resnet50-matrixsize-A.log'
+    logfile = './logs/resnet34-matrixsize.log'
+    workloads = reader.read_tensor_sizes(logfile)
     total_time = []
     num_iters = 50
+    total_sizes = []
     for w in workloads:
         n = w[0]
         #t = bench_gemm(n, num_iters)
         t = bench_ops(n, num_iters)
         total_time.append(t)
+        total_sizes.append(n*n)
         print('%d,%f'%(n,t))
+    print('Log file: ', logfile)
+    print('# of Tensors: ', len(total_sizes))
+    print('Total size: ', np.sum(total_sizes))
     print('Total time: ', np.sum(total_time))
     print('Max-min-mean-std: ', np.max(total_time), np.min(total_time), np.mean(total_time), np.std(total_time))
+    
+def bench_customize_comm():
+    import horovod.torch as hvd
+    torch.random.manual_seed(10)
+    hvd.init()
+    rank = hvd.rank()
+    local_rank = hvd.local_rank()
+    size = hvd.size()
+    torch.cuda.set_device(local_rank)
+
+    logfile = './logs/resnet50-matrixsize-A.log'
+    workloads = reader.read_tensor_sizes(logfile)
+    tensors = []
+    outputs = []
+    for w in workloads:
+        n = w[0]
+        a = torch.rand(n).float().cuda()
+        a = a.view(-1, a.size(-1))
+        A = a.t() @ (a)
+        tensors.append(A)
+        outputs.append(A.new_zeros(A.shape))
+
+        communicator = tcmm.Communicator(rank, size)
+    warmup = 5
+    niters = 10
+    for i in range(warmup):
+        communicator.multiBcast(tensors, outputs, compute_eigen)
+        communicator.synchronize()
+    torch.cuda.synchronize()
+
+    stime = time.time()
+    for i in range(niters):
+        communicator.multiBcast(tensors, outputs, compute_eigen)
+        communicator.synchronize()
+        torch.cuda.synchronize()
+    etime = time.time()
+    print('Avg time: ', (etime-stime)/niters)
+
 
 def check():
     n = 1024
@@ -116,6 +166,7 @@ def check():
     #print('bA1: ', _goback(d1, Q1))
 
 if __name__ == '__main__':
-    #bench()
-    bench_from_log()
+    bench()
+    #bench_from_log()
+    #bench_customize_comm()
     #check()

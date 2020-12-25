@@ -1,8 +1,10 @@
 #include <torch/extension.h>
+#include <ATen/ATen.h>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
+#include <cublas_v2.h>
 
 #include <helper_functions.h>
 #include <helper_cuda.h>
@@ -13,6 +15,7 @@
 using namespace std;
 
 static cusolverDnHandle_t g_cusolverH = NULL;
+static cublasHandle_t g_cublasHandle = NULL;
 static cusolverStatus_t cusolver_status = CUSOLVER_STATUS_SUCCESS;
 
 
@@ -26,12 +29,27 @@ static cusolverStatus_t cusolver_status = CUSOLVER_STATUS_SUCCESS;
     }                                                                                       \
 } while(0)
 
+
+#define cublasErrCheck(stat) { cublasErrCheck_((stat), __FILE__, __LINE__); }
+void cublasErrCheck_(cublasStatus_t stat, const char *file, int line) {
+    if (stat != CUBLAS_STATUS_SUCCESS) {
+        fprintf(stderr, "cuBLAS Error: %d %s %d\n", stat, file, line);
+    }
+}
+
 cusolverDnHandle_t get_cusolver_handler() {
     if (g_cusolverH == NULL) {
         cusolver_status = cusolverDnCreate(&g_cusolverH);
         assert(CUSOLVER_STATUS_SUCCESS == cusolver_status);
     }
     return g_cusolverH;
+}
+
+cublasHandle_t get_cublas_handler() {
+    if (g_cublasHandle == NULL) {
+        cublasErrCheck(cublasCreate(&g_cublasHandle));
+    }
+    return g_cublasHandle;
 }
 
 
@@ -102,4 +120,35 @@ std::vector<torch::Tensor> tcmm_symeig_sparse(torch::Tensor a) {
     tuple.push_back(a); 
     tuple.push_back(a); 
     return tuple;
+}
+
+torch::Tensor tcmm_gemm_ex(torch::Tensor a, torch::Tensor b) {
+	torch::Tensor a_fp16 = at::_cast_Half(a);
+	torch::Tensor b_fp16 = at::_cast_Half(b);
+
+    const auto a_shape = a.sizes();
+    const int m = a_shape[0];
+    const int k = a_shape[1];
+    const int n = b.sizes()[1];
+	const float alpha = 1.0;
+	const float beta = 0.0;
+
+    auto options_float =
+        torch::TensorOptions()
+        .dtype(torch::kFloat32)
+        .layout(torch::kStrided)
+        .device(a.device().type())
+        .requires_grad(false);
+    auto c = torch::zeros({m, n}, options_float); 
+    cublasHandle_t cublasHandle = get_cublas_handler();
+
+	cublasErrCheck(cublasGemmEx(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_T, 
+                m, n, k, 
+                &alpha,
+                a_fp16.data_ptr<at::Half>(), CUDA_R_16F, k,
+                b_fp16.data_ptr<at::Half>(), CUDA_R_16F, n,
+                &beta, 
+                c.data_ptr<float>(), CUDA_R_32F, n,
+                CUDA_R_32F, CUBLAS_GEMM_DFALT_TENSOR_OP));
+	return c;
 }
