@@ -123,15 +123,16 @@ std::vector<torch::Tensor> tcmm_symeig_sparse(torch::Tensor a) {
 }
 
 torch::Tensor tcmm_gemm_ex(torch::Tensor a, torch::Tensor b) {
-	torch::Tensor a_fp16 = at::_cast_Half(a);
-	torch::Tensor b_fp16 = at::_cast_Half(b);
+    torch::Tensor a_fp16 = at::_cast_Half(a);
+    torch::Tensor b_fp16 = at::_cast_Half(b);
 
     const auto a_shape = a.sizes();
     const int m = a_shape[0];
     const int k = a_shape[1];
     const int n = b.sizes()[1];
-	const float alpha = 1.0;
-	const float beta = 0.0;
+    const float alpha = 1.0;
+    const float beta = 0.0;
+    cudaError_t cudaStat1 = cudaSuccess;
 
     auto options_float =
         torch::TensorOptions()
@@ -142,13 +143,15 @@ torch::Tensor tcmm_gemm_ex(torch::Tensor a, torch::Tensor b) {
     auto c = torch::zeros({m, n}, options_float); 
     cublasHandle_t cublasHandle = get_cublas_handler();
 
-	cublasErrCheck(cublasGemmEx(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_T, 
+    cublasGemmEx(cublasHandle, CUBLAS_OP_T, CUBLAS_OP_T, 
                 m, n, k, 
                 &alpha,
                 a_fp16.data_ptr<at::Half>(), CUDA_R_16F, k,
                 b_fp16.data_ptr<at::Half>(), CUDA_R_16F, n,
                 &beta, 
                 c.data_ptr<float>(), CUDA_R_32F, n,
-                CUDA_R_32F, CUBLAS_GEMM_DFALT_TENSOR_OP));
-	return c;
+                CUDA_R_32F, CUBLAS_GEMM_DFALT_TENSOR_OP);
+    cudaStat1 = cudaDeviceSynchronize();
+    assert(cudaSuccess == cudaStat1);
+    return c;
 }

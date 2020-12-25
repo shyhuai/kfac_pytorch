@@ -114,7 +114,7 @@ class MergedComm:
                 self.handles.append(handle)
         else:
             if self.symmetric:
-                upper_indices = torch.tril_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
                 comm_tensor = tensor[upper_indices[0], upper_indices[1]]
             else:
                 comm_tensor = tensor

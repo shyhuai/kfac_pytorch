@@ -87,7 +87,8 @@ class KFAC(optim.Optimizer):
                  diag_warmup=0,
                  distribute_layer_factors=None,
                  sparse=False,
-                 sparse_ratio=0.01):
+                 sparse_ratio=0.01,
+                 exclude_parts=''):
 
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -434,10 +435,14 @@ class KFAC(optim.Optimizer):
             for module in self.modules:
                 a = self.m_a[module]
                 g = self.m_g[module]
+                if hvd.rank() == 0:
+                    logger.info('a Name: %s, shape %s', module, a.shape)
+                    logger.info('g Name: %s, shape %s', module, g.shape)
                 A = torch.einsum('ki,kj->ij', a, a/a.size(0)) 
                 G = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
                 update_running_avg(A, self.m_A[module], self.factor_decay)
                 update_running_avg(G, self.m_G[module], self.factor_decay)
+            raise
 
         # if we are switching from no diag approx to approx, we need to clear
         # off-block-diagonal elements

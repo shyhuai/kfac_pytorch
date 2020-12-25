@@ -4,7 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tcmm
 
-TENSOR_CORE=True
+TENSOR_CORE=False
+TENSOR_CORE_THRES=1024 #2048*1024
 
 def try_contiguous(x):
     if not x.is_contiguous():
@@ -87,6 +88,12 @@ def update_running_avg(new, current, alpha):
     current *= alpha / (1 - alpha)
     current += new
     current *= (1 - alpha)
+
+def use_tensor_core(tensor):
+    #if TENSOR_CORE and tensor.shape[0] > TENSOR_CORE_THRES and tensor.shape[1] > TENSOR_CORE_THRES:
+    if TENSOR_CORE and tensor.shape[1] > TENSOR_CORE_THRES:
+        return True
+    return False
 
 residualsA = {}
 residualsG = {}
@@ -180,7 +187,8 @@ class ComputeA:
         # FIXME(CW): do we need to divide the output feature map's size?
         #return torch.einsum('ki,kj->ij', a, a/batch_size) 
         #return a.t() @ (a / batch_size) 
-        if TENSOR_CORE:
+        #print('a dimension conv: ', a.shape)
+        if use_tensor_core(a):
             return tcmm.f_gemm_ex(a.t(), a/batch_size)
         else:
             return a.t() @ (a / batch_size) 
@@ -196,7 +204,8 @@ class ComputeA:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
         #return torch.einsum('ki,kj->ij', a, a/batch_size) 
         #return a.t() @ (a / batch_size)
-        if TENSOR_CORE:
+        #print('a dimension linear: ', a.shape)
+        if use_tensor_core(a):
             return tcmm.f_gemm_ex(a.t(), a/batch_size)
         else:
             return a.t() @ (a / batch_size)
@@ -282,7 +291,7 @@ class ComputeG:
         g = g * spatial_size
         #cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
         #cov_g = g.t() @ (g / g.size(0))
-        if TENSOR_CORE:
+        if use_tensor_core(g): 
             cov_g = tcmm.f_gemm_ex(g.t(), g/g.size(0))
         else:
             cov_g = g.t() @ (g / g.size(0))
@@ -298,14 +307,14 @@ class ComputeG:
         if batch_averaged:
             #cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
             #cov_g = g.t() @ (g * batch_size)
-            if TENSOR_CORE:
+            if use_tensor_core(g):
                 cov_g = tcmm.f_gemm_ex(g.t(), g*batch_size)
             else:
                 cov_g = g.t() @ (g * batch_size)
         else:
             #cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
             #cov_g = g.t() @ (g / batch_size)
-            if TENSOR_CORE:
+            if use_tensor_core(g): 
                 cov_g = tcmm.f_gemm_ex(g.t(), g/batch_size)
             else:
                 cov_g = g.t() @ (g / batch_size)
