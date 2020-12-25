@@ -1,8 +1,13 @@
 #!/bin/bash
-#dnn="${dnn:-resnet32}"
 dnn="${dnn:-resnet50}"
 nworkers="${nworkers:-4}"
+batch_size="${batch_size:-32}"
+rdma="${rdma:-1}"
 kfac="${kfac:-1}"
+epochs="${epochs:-55}"
+kfac_name="${kfac_name:-inverse}"
+exclude_parts="${exclude_parts:-''}"
+
 MPIPATH=/usr/local/openmpi/openmpi-4.0.1
 PY=/home/comp/15485625/pytorch1.4/bin/python
 
@@ -18,7 +23,7 @@ if [ "$dnn" = "resnet50" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile sci-cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_imagenet_resnet.py \
-          --base-lr 0.0125 --epochs 55 --kfac-update-freq $kfac --model $dnn  --lr-decay 25 35 40 45 50 --batch-size 128 \
+          --base-lr 0.0125 --epochs $epochs --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn --kfac-name $kfac_name --exclude-parts ${exclude_parts} --batch-size $batch_size --lr-decay 25 35 40 45 50 \
           --train-dir /home/datasets/imagenet/ILSVRC2012_dataset/train \
           --val-dir /home/datasets/imagenet/ILSVRC2012_dataset/val
 else
