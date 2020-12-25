@@ -11,6 +11,8 @@ refc = a @ b
 print('a shape: ', a.shape)
 print('b shape: ', b.shape)
 
+print(a)
 c = tcmm.f_gemm_ex(a, b)
+print(a)
 print((refc-c).norm())
 #print(c)

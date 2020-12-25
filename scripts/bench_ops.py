@@ -46,18 +46,23 @@ def bench_ops(n, num_iters, warmup=5):
     time_used = (etime-stime)/num_iters
     return time_used
 
-def bench_gemm(n, num_iters, warmup=5):
-    a = torch.rand(n, n).float().cuda()
+def bench_gemm(m, n, num_iters, warmup=5):
+    TENSOR_CORE=True
+    a = torch.rand(m, n).float().cuda()
     #a = a.view(-1, a.size(-1))
     #print('a shape: ', a.shape)
     for i in range(warmup):
-        #A = a.t() @ (a)
-        tcmm.f_gemm_ex(a.t(), a)
+        if TENSOR_CORE:
+            tcmm.f_gemm_ex(a.t(), a)
+        else:
+            A = a.t() @ (a)
     torch.cuda.synchronize()
     stime = time.time()
     for i in range(num_iters):
-        #A = a.t() @ (a)
-        tcmm.f_gemm_ex(a.t(), a)
+        if TENSOR_CORE:
+            tcmm.f_gemm_ex(a.t(), a)
+        else:
+            A = a.t() @ (a)
     torch.cuda.synchronize()
     etime = time.time()
     time_used = (etime-stime)/num_iters
@@ -65,7 +70,7 @@ def bench_gemm(n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(2048, 8192, 1024) 
+    ns = range(6272, 8192*2, 1024) 
     #ns = range(3, 512+64, 64) 
     #ns = [3]
     #ns = ns+range(2**20, 2**29, 2**20) 
@@ -75,23 +80,25 @@ def bench():
         if n > 2**19:
             num_iters = 10
         #t = bench_ops(n, num_iters)
-        t = bench_gemm(n, num_iters)
+        t = bench_gemm(n, n, num_iters)
         print('%d,%f'%(n,t))
 
 def bench_from_log():
-    #logfile = './logs/resnet50-matrixsize-A.log'
-    logfile = './logs/resnet34-matrixsize.log'
+    #logfile = './logs/resnet50-matrixsize-A.log';bs=1;target_bs=1
+    #logfile = './logs/resnet34-matrixsize.log';bs=1;target_bs=1
+    logfile = './logs/resnet50-matrixsize-ag.log';bs=8;target_bs=32
     workloads = reader.read_tensor_sizes(logfile)
     total_time = []
     num_iters = 50
     total_sizes = []
     for w in workloads:
-        n = w[0]
-        #t = bench_gemm(n, num_iters)
-        t = bench_ops(n, num_iters)
+        m = w[0]*target_bs//bs
+        n = w[1]
+        t = bench_gemm(m, n, num_iters)
+        #t = bench_ops(n, num_iters)
         total_time.append(t)
-        total_sizes.append(n*n)
-        print('%d,%f'%(n,t))
+        total_sizes.append(m*n)
+        print('(%d,%d),%f'%(m,n,t))
     print('Log file: ', logfile)
     print('# of Tensors: ', len(total_sizes))
     print('Total size: ', np.sum(total_sizes))
@@ -160,7 +167,7 @@ def check():
     #print('bA1: ', _goback(d1, Q1))
 
 if __name__ == '__main__':
-    bench()
-    #bench_from_log()
+    #bench()
+    bench_from_log()
     #bench_customize_comm()
     #check()

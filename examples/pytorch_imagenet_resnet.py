@@ -125,8 +125,8 @@ def initialize():
     hvd.init()
     torch.manual_seed(args.seed)
     args.verbose = 1 if hvd.rank() == 0 else 0
-    if args.verbose:
-        logger.info(args)
+    #if args.verbose:
+    #    logger.info(args)
 
     if args.cuda:
         torch.cuda.set_device(hvd.local_rank())
@@ -166,8 +166,8 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/timing_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
-    #logfile = './logs/debug_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/timing_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    logfile = './logs/debug_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
