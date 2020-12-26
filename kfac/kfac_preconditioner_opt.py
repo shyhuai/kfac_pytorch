@@ -11,7 +11,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
-from kfac.comm import MergedComm 
+from kfac.comm import MergedCommAllReduce
 import logging
 import tcmm
 
@@ -119,8 +119,8 @@ class KFAC(optim.Optimizer):
         #self.fw_factor_handles = []
         #self.bw_factor_handles = []
         self._register_modules(model)
-        self.fw_merged_comm = MergedComm(self.module_names, prefix='forward', merge=True, single_layer=False)
-        self.bw_merged_comm = MergedComm(self.module_names, prefix='backward', merge=True, single_layer=False)
+        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=True, single_layer=False)
 
         self.steps = 0
 

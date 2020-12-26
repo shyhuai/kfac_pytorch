@@ -167,14 +167,15 @@ def initialize():
         args.log_writer = None
 
     #logfile = './logs/timing_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
-    logfile = './logs/convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    logfile = './logs/debug_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     hdlr = logging.FileHandler(logfile)
     hdlr.setFormatter(formatter)
     logger.addHandler(hdlr) 
-    logger.info(args)
+    if args.verbose:
+        logger.info(args)
 
     return args
 
@@ -182,10 +183,10 @@ def get_datasets(args):
     # Horovod: limit # of CPU threads to be used per worker.
     if args.single_threaded:
         torch.set_num_threads(4)
-        kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
+        kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
     else:
-        torch.set_num_threads(4)
-        kwargs = {'num_workers': 4, 'pin_memory': True} if args.cuda else {}
+        torch.set_num_threads(8)
+        kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
 
     train_dataset = datasets.ImageFolder(
             args.train_dir,
@@ -318,10 +319,10 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
             stime = time.time()
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
-            optimizer.zero_grad()
             iotime = time.time()
             iotimes.append(iotime-stime)
 
+            optimizer.zero_grad()
             for i in range(0, len(data), args.batch_size):
                 data_batch = data[i:i + args.batch_size]
                 target_batch = target[i:i + args.batch_size]

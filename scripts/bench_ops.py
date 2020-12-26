@@ -46,6 +46,7 @@ def bench_ops(n, num_iters, warmup=5):
     time_used = (etime-stime)/num_iters
     return time_used
 
+
 def bench_gemm(m, n, num_iters, warmup=5):
     TENSOR_CORE=True
     a = torch.rand(m, n).float().cuda()
@@ -70,7 +71,9 @@ def bench_gemm(m, n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(6272, 8192*2, 1024) 
+    ns = range(2048, 8192, 1024) 
+    #ns = range(64, 512+64, 64) 
+    #ns = range(6272, 8192*2, 1024) 
     #ns = range(3, 512+64, 64) 
     #ns = [3]
     #ns = ns+range(2**20, 2**29, 2**20) 
