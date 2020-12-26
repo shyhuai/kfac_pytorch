@@ -174,7 +174,8 @@ def initialize():
     hdlr = logging.FileHandler(logfile)
     hdlr.setFormatter(formatter)
     logger.addHandler(hdlr) 
-    logger.info(args)
+    if args.verbose:
+        logger.info(args)
 
     return args
 
@@ -415,7 +416,7 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
-        #validate(epoch, model, loss_func, val_loader, args)
+        validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     if args.verbose:
