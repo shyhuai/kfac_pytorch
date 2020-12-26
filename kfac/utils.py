@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tcmm
 
-TENSOR_CORE=True
+TENSOR_CORE=False
 TENSOR_CORE_THRES=1024 #2048*1024
 
 def try_contiguous(x):
