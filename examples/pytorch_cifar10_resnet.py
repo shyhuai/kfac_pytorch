@@ -8,24 +8,24 @@ import math
 from distutils.version import LooseVersion
 
 import torch
+torch.multiprocessing.set_start_method('spawn')
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 #from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import LambdaLR
 from torchvision import datasets, transforms, models
-import torch.utils.data.distributed
+#import torch.utils.data.distributed
 
 #from torchsummary import summary
 import cifar_resnet as resnet
-import horovod.torch as hvd
-from tqdm import tqdm
+#from tqdm import tqdm
 from utils import *
 
 import kfac
 
 import logging
-#torch.multiprocessing.set_start_method('spawn')
+import horovod.torch as hvd
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -33,7 +33,6 @@ strhdlr = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s [%(filename)s:%(lineno)d] %(levelname)s %(message)s')
 strhdlr.setFormatter(formatter)
 logger.addHandler(strhdlr) 
-
 
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
 

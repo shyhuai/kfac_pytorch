@@ -6,8 +6,11 @@ os.system('pip uninstall -y tcmm')
 #os.system('make clean; make -j%d' % os.cpu_count())
 
 CUDA_DIR = _find_cuda_home()
-NCCL_DIR = '/home/esetstore/downloads/nccl_2.4.7-1+cuda10.1_x86_64'
-MPI_DIR = '/home/esetstore/.local/openmpi-4.0.1'
+
+NCCL_DIR= '/home/comp/15485625/downloads/nccl_2.4.8-1+cuda10.1_x86_64'
+MPI_DIR = '/usr/local/openmpi/openmpi-4.0.1'
+#NCCL_DIR = '/home/esetstore/downloads/nccl_2.4.7-1+cuda10.1_x86_64'
+#MPI_DIR = '/home/esetstore/.local/openmpi-4.0.1'
 
 # Python interface
 setup(
@@ -28,7 +31,7 @@ setup(
                 'src/tcmm.cpp',
                 'src/tcmm_kernel.cu',
             ],
-            libraries=['cusolver', 'nccl', 'mpi'],
+            libraries=['cusolver', 'nccl', 'mpi', 'cublas'],
             library_dirs=['objs', CUDA_DIR+'/lib64', NCCL_DIR+'/lib', MPI_DIR+'/lib'],
             # extra_compile_args=['-g']
         )

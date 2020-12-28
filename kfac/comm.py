@@ -4,9 +4,10 @@ import numpy as np
 
 
 class TensorGroup:
-    def __init__(self, tensor_names, single_layer):
+    def __init__(self, tensor_names, single_layer, tensors=None):
         self._tensor_names = tensor_names
         self._single_layer = single_layer
+        self._tensors = tensors
         self._groups, self._group_indices_by_name = self._generate_groups()
         self._group_flags = [[0]*len(g) for g in self._groups]
         self._group_keys = [':'.join(g) for g in self._groups]
@@ -65,7 +66,6 @@ class TensorGroup:
         return name, None
 
     def pull_alltensors(self):
-        new_name_tensors = {}
         for group_key in self._group_buffers:
             names = group_key.split(':')
             group_idx, sub_idx = self.get_group_index_by_name(names[0]) 
@@ -77,47 +77,105 @@ class TensorGroup:
                 t.copy_(buf.data[offset:offset+numel].view(t.shape))
                 offset += numel 
 
+    def update_groups(self, tensors):
+        if self._tensors is not None:
+            return
+        self._tensors = tensors
 
-class MergedComm:
-    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False):
+
+class MergedCommAllReduce:
+    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False, symmetric=False, fp16=False, residual=False):
         self._tensor_names = tensor_names
         self.merge = merge
+        self.fp16 = fp16
+        self.residual = residual
         self.prefix = prefix
+        self.op = hvd.Sum
         if merge:
             self._tensor_group = TensorGroup(tensor_names, single_layer=single_layer) 
         else:
             self._tensor_group = None
         self._name_tensors = {}
+        self._residuals = {}
         self.handles = []
+        self.symmetric = symmetric
 
     def allreduce_async_(self, name, tensor, op=hvd.Average):
+        self.op = op
         if self.merge:
-            new_name, new_tensor = self._tensor_group.push_tensor(name, tensor)
-            self._name_tensors[name] = tensor
+            if self.symmetric:
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+            else:
+                comm_tensor = tensor
+            if self.fp16:
+                if self.residual:
+                    if name not in self._residuals:
+                        self._residuals[name] = comm_tensor.new_zeros(comm_tensor.shape)
+                    comm_tensor.add_(self._residuals[name])
+                half_tensor  = comm_tensor.half() 
+                if self.residual:
+                    self._residuals[name] = comm_tensor - half_tensor
+                comm_tensor = half_tensor
+            self._name_tensors[name] = (tensor, comm_tensor)
+            new_name, new_tensor = self._tensor_group.push_tensor(name, comm_tensor)
             if new_tensor is not None:
                 current_stream = torch.cuda.current_stream()
                 current_stream.synchronize()
 
-                handle = hvd.allreduce_async_(new_tensor, op=op, name=self.prefix+new_name)
+
+                handle = hvd.allreduce_async_(new_tensor, op=hvd.Sum, name=self.prefix+new_name)
                 self.handles.append(handle)
         else:
-            handle = hvd.allreduce_async_(tensor, op=hvd.Average)
+            if self.symmetric:
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+            else:
+                comm_tensor = tensor
+            if self.fp16:
+                if self.residual:
+                    if name not in self._residuals:
+                        self._residuals[name] = comm_tensor.new_zeros(comm_tensor.shape)
+                    comm_tensor.add_(self._residuals[name])
+                half_tensor  = comm_tensor.half() 
+                if self.residual:
+                    self._residuals[name] = comm_tensor - half_tensor
+                comm_tensor = half_tensor #comm_tensor.half()
+                #comm_tensor = comm_tensor.bfloat16() 
+            self._name_tensors[name] = (tensor, comm_tensor)
+            handle = hvd.allreduce_async_(comm_tensor, op=hvd.Sum)
             self.handles.append(handle)
 
     def synchronize(self):
         for h in self.handles:
             hvd.synchronize(h)
-        self.handles.clear()
         if self.merge:
             self._tensor_group.pull_alltensors()
             self._tensor_group.clear_group_flags()
-
+        for name in self._name_tensors:
+            tensor, comm_tensor = self._name_tensors[name]
+            if self.symmetric:
+                if self.fp16:
+                    comm_tensor = comm_tensor.float()
+                lower_indices = torch.tril_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
+                tensor[upper_indices[0], upper_indices[1]] = comm_tensor
+                tensor[lower_indices[0], lower_indices[1]] = tensor.t()[lower_indices[0], lower_indices[1]]
+            else:
+                if self.fp16:
+                    comm_tensor = comm_tensor.float()
+                    tensor.copy_(comm_tensor)
+            if self.op == hvd.Average:
+                tensor.div_(hvd.size())
+        self._name_tensors.clear()
+        self.handles.clear()
 
 class MergedCommBcast:
-    def __init__(self, tensor_names, prefix='flag'):
+    def __init__(self, tensor_names, prefix='flag', fp16=False):
         self._tensor_names = tensor_names
         self.merge = False
         self.prefix = prefix
+        self.fp16 = fp16
         if self.merge:
             self._tensor_group = TensorGroup(tensor_names, single_layer=False) 
         else:
@@ -182,41 +240,66 @@ class MergedCommBcast:
 
 
 class MultiTensorComm:
-    def __init__(self):
+    def __init__(self, symmetric=False, fp16=False):
         self.handles = []
+        self.symmetric = symmetric
+        self.fp16 = fp16
         self.merged_tensors = {}
 
     def bcast_async_(self, names, tensors, rank):
         #name = 'merged_tensor_comm_'+','.join(names)
+        if self.fp16:
+            comm_tensors = [t.half() for t in tensors]
+        else:
+            comm_tensors = tensors
+
+        if self.symmetric:
+            sym_comm_tensors = []
+            for tensor in comm_tensors:
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+                sym_comm_tensors.append(comm_tensor)
+            comm_tensors = sym_comm_tensors
+
         name = ','.join(names)
         if name not in self.merged_tensors:
             size = 0
-            for t in tensors:
+            for t in comm_tensors:
                 size += t.numel()
-            buf = tensors[0].new_zeros(size)
+            buf = comm_tensors[0].new_zeros(size)
             self.merged_tensors[name] = buf
         buf = self.merged_tensors[name]
         offset = 0
-        for t in tensors:
+        for t in comm_tensors:
             numel = t.numel()
             buf.data[offset:offset+numel].copy_(t.view(numel))
             offset += numel
         #handle = hvd.broadcast_async_(buf, rank, name=name)
         handle = hvd.broadcast_async_(buf, rank)
-        self.handles.append((handle, names, tensors))
+        self.handles.append((handle, names, tensors, comm_tensors))
 
     def synchronize(self):
         for h in self.handles:
-            handle, names, tensors = h
+            handle, names, tensors, comm_tensors = h
             hvd.synchronize(handle)
             #name = 'merged_tensor_comm_'+','.join(names)
             name = ','.join(names)
 
             offset = 0
             buf = self.merged_tensors[name]
-            for t in tensors:
-                numel = t.numel()
-                t.copy_(buf.data[offset:offset+numel].view(t.shape))
+            if self.fp16:
+                buf = buf.float()
+            for i, t in enumerate(tensors):
+                numel = comm_tensors[i].numel()
+                comm_tensor = buf.data[offset:offset+numel]
+
+                if self.symmetric:
+                    lower_indices = torch.tril_indices(t.shape[0], t.shape[1], device=t.device)
+                    upper_indices = torch.triu_indices(t.shape[0], t.shape[1], device=t.device)
+                    t[upper_indices[0], upper_indices[1]] = comm_tensor.view(comm_tensors[i].shape)
+                    t[lower_indices[0], lower_indices[1]] = t.t()[lower_indices[0], lower_indices[1]]
+                else:
+                    t.copy_(comm_tensor.view(t.shape))
                 offset += numel 
         self.handles.clear()
 

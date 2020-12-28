@@ -20,11 +20,17 @@ std::vector<torch::Tensor> f_symeig_sparse(torch::Tensor a) {
     return c;
 }
 
+torch::Tensor f_gemm_ex(torch::Tensor a, torch::Tensor b) {
+    auto c = tcmm_gemm_ex(a, b);
+    return c;
+}
+
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("f_symeig", &f_symeig, "TCMM: Eigendecomposition using cuSolver");
     m.def("f_symeig_sparse", &f_symeig_sparse, "TCMM: Eigendecomposition using cuSolverSP");
+    m.def("f_gemm_ex", &f_gemm_ex, "TCMM: GEMM with Tensor Core using cuBLAS");
 
     std::string name = std::string("Communicator");
     py::class_<Communicator>(m, name.c_str())
