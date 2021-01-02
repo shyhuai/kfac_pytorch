@@ -84,11 +84,11 @@ class TensorGroup:
 
 
 class MergedCommAllReduce:
-    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False, symmetric=False, fp16=False):
+    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False, symmetric=False, fp16=False, residual=False):
         self._tensor_names = tensor_names
         self.merge = merge
         self.fp16 = fp16
-        self.numeric_scaling = 128
+        self.residual = residual
         self.prefix = prefix
         self.op = hvd.Sum
         if merge:
@@ -96,6 +96,7 @@ class MergedCommAllReduce:
         else:
             self._tensor_group = None
         self._name_tensors = {}
+        self._residuals = {}
         self.handles = []
         self.symmetric = symmetric
 
@@ -108,8 +109,14 @@ class MergedCommAllReduce:
             else:
                 comm_tensor = tensor
             if self.fp16:
-                comm_tensor = comm_tensor.half() #(comm_tensor*self.numeric_scaling).half()
-                #comm_tensor = comm_tensor.bfloat16() 
+                if self.residual:
+                    if name not in self._residuals:
+                        self._residuals[name] = comm_tensor.new_zeros(comm_tensor.shape)
+                    comm_tensor.add_(self._residuals[name])
+                half_tensor  = comm_tensor.half() 
+                if self.residual:
+                    self._residuals[name] = comm_tensor - half_tensor
+                comm_tensor = half_tensor
             self._name_tensors[name] = (tensor, comm_tensor)
             new_name, new_tensor = self._tensor_group.push_tensor(name, comm_tensor)
             if new_tensor is not None:
@@ -126,8 +133,14 @@ class MergedCommAllReduce:
             else:
                 comm_tensor = tensor
             if self.fp16:
-                #comm_tensor = (comm_tensor*self.numeric_scaling).half()
-                comm_tensor = comm_tensor.half() 
+                if self.residual:
+                    if name not in self._residuals:
+                        self._residuals[name] = comm_tensor.new_zeros(comm_tensor.shape)
+                    comm_tensor.add_(self._residuals[name])
+                half_tensor  = comm_tensor.half() 
+                if self.residual:
+                    self._residuals[name] = comm_tensor - half_tensor
+                comm_tensor = half_tensor #comm_tensor.half()
                 #comm_tensor = comm_tensor.bfloat16() 
             self._name_tensors[name] = (tensor, comm_tensor)
             handle = hvd.allreduce_async_(comm_tensor, op=hvd.Sum)
@@ -143,14 +156,14 @@ class MergedCommAllReduce:
             tensor, comm_tensor = self._name_tensors[name]
             if self.symmetric:
                 if self.fp16:
-                    comm_tensor = comm_tensor.float() #/self.numeric_scaling
+                    comm_tensor = comm_tensor.float()
                 lower_indices = torch.tril_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
                 upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
                 tensor[upper_indices[0], upper_indices[1]] = comm_tensor
                 tensor[lower_indices[0], lower_indices[1]] = tensor.t()[lower_indices[0], lower_indices[1]]
             else:
                 if self.fp16:
-                    comm_tensor = comm_tensor.float() #/self.numeric_scaling
+                    comm_tensor = comm_tensor.float()
                     tensor.copy_(comm_tensor)
             if self.op == hvd.Average:
                 tensor.div_(hvd.size())
@@ -227,8 +240,9 @@ class MergedCommBcast:
 
 
 class MultiTensorComm:
-    def __init__(self, fp16=False):
+    def __init__(self, symmetric=False, fp16=False):
         self.handles = []
+        self.symmetric = symmetric
         self.fp16 = fp16
         self.merged_tensors = {}
 
@@ -238,6 +252,15 @@ class MultiTensorComm:
             comm_tensors = [t.half() for t in tensors]
         else:
             comm_tensors = tensors
+
+        if self.symmetric:
+            sym_comm_tensors = []
+            for tensor in comm_tensors:
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+                sym_comm_tensors.append(comm_tensor)
+            comm_tensors = sym_comm_tensors
+
         name = ','.join(names)
         if name not in self.merged_tensors:
             size = 0
@@ -266,9 +289,17 @@ class MultiTensorComm:
             buf = self.merged_tensors[name]
             if self.fp16:
                 buf = buf.float()
-            for t in tensors:
-                numel = t.numel()
-                t.copy_(buf.data[offset:offset+numel].view(t.shape))
+            for i, t in enumerate(tensors):
+                numel = comm_tensors[i].numel()
+                comm_tensor = buf.data[offset:offset+numel]
+
+                if self.symmetric:
+                    lower_indices = torch.tril_indices(t.shape[0], t.shape[1], device=t.device)
+                    upper_indices = torch.triu_indices(t.shape[0], t.shape[1], device=t.device)
+                    t[upper_indices[0], upper_indices[1]] = comm_tensor.view(comm_tensors[i].shape)
+                    t[lower_indices[0], lower_indices[1]] = t.t()[lower_indices[0], lower_indices[1]]
+                else:
+                    t.copy_(comm_tensor.view(t.shape))
                 offset += numel 
         self.handles.clear()
 

@@ -24,6 +24,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data.distributed
+import torchvision
 from torch.optim.lr_scheduler import LambdaLR
 from torchvision import datasets, transforms
 import horovod.torch as hvd
@@ -33,6 +34,8 @@ import imagenet_resnet as models
 from utils import *
 
 import kfac
+import inceptionv4
+
 os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '10' 
 
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
@@ -167,7 +170,8 @@ def initialize():
         args.log_writer = None
 
     #logfile = './logs/timing_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
-    logfile = './logs/debug_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    logfile = './logs/timing_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/debug_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
@@ -233,6 +237,14 @@ def get_model(args):
         model = models.resnext50_32x4d()
     elif args.model.lower() == 'resnext101':
         model = models.resnext101_32x8d()
+    elif args.model.lower() == 'densenet121':
+        model = torchvision.models.densenet121(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'vgg16':
+        model = torchvision.models.vgg16(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'inceptionv3':
+        model = torchvision.models.inception_v3(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'inceptionv4':
+        model = inceptionv4.inceptionv4(num_classes=1000,pretrained=False)
     else:
         raise ValueError('Unknown model \'{}\''.format(args.model))
 
@@ -416,7 +428,7 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
-        validate(epoch, model, loss_func, val_loader, args)
+        #validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     if args.verbose:
