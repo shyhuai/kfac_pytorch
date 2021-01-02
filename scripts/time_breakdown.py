@@ -25,13 +25,6 @@ def plot_breakdown():
     kfac = [0.132,    0, 0.205, 0,    0.282, 0]
     dkfac = [0.132,    0.199-0.132, 0.404-0.199, 0.704-0.404, 0.282, 0]
     dkfacmp = [0.132,    0.199-0.132, 0.404-0.199, 0.704-0.404, 0.736-0.704, 0.882-0.736]
-    #names = ['FF & BP', 'Compression', 'Communication', 'LARS']
-    #colors = [Color.backward_color, Color.compression_color, Color.comm_color, Color.lars_color]
-    #densesgd = [0.204473, 0,    0.24177, 0.01114]
-    #topksgd =  [0.204473,   0.239, 0.035, 0.01114]
-    #densesgd96 = [0.054376, 0,    0.366886, 0.012794]
-    #topksgd96 =  [0.054376,   0.239, 0.035, 0.012794]
-
 
     fig, ax = plt.subplots(figsize=(5.8,4))
 
@@ -77,8 +70,8 @@ def plot_breakdown():
     #ax.legend(tuple(bars), tuple(names), loc='upper center',bbox_to_anchor=(1, 0.5), fontsize=FONTSIZE, ncol=3)#, handletextpad=0.2, columnspacing =1.)
     fig.subplots_adjust(left=0.14, right=0.61, bottom=0.19, top=0.94)
     #plt.savefig('%s/naive-breakdown-%s.pdf' % (OUTPUT_PATH, dnn), bbox_inches='tight')
-    plt.savefig('%s/naive-breakdown-%s.pdf' % (OUTPUT_PATH, dnn))
-    #plt.show()
+    #plt.savefig('%s/naive-breakdown-%s.pdf' % (OUTPUT_PATH, dnn))
+    plt.show()
 
 
 if __name__ == '__main__':

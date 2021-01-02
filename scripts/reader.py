@@ -114,3 +114,39 @@ def read_times_from_nccl_log(logfile, mode='allreduce', start=0, end=512*1024*10
     #print('errors: ', errors)
     return np.array(sizes), np.array(comms), np.array(errors)
 
+
+def read_from_log_mean_std(logfile):
+    with open(logfile) as f:
+        means = []
+        stds = []
+        for line in f.readlines():
+            items = line.split()
+            unit = items[0][-1]
+            if unit in ['M', 'K']:
+                if unit == 'K':
+                    item0 = float(items[0][:-1]) * 1024
+                else:
+                    item0 = float(items[0][:-1]) * 1024*1024
+            else:
+                item0 = float(items[0])
+            means.append(item0)
+            stds.append(float(items[1]))
+        return means, stds
+
+def read_from_log_tuple(logfile):
+    with open(logfile) as f:
+        X = []
+        Y = []
+        for line in f.readlines():
+            items = line.split()
+            unit = items[0][-1]
+            if unit in ['M', 'K']:
+                if unit == 'K':
+                    item0 = float(items[0][:-1]) * 1024
+                else:
+                    item0 = float(items[0][:-1]) * 1024*1024
+            else:
+                item0 = float(items[0])
+            X.append(item0)
+            Y.append(float(items[1]))
+        return X, Y
