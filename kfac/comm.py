@@ -108,8 +108,8 @@ class MergedCommAllReduce:
             else:
                 comm_tensor = tensor
             if self.fp16:
-                #comm_tensor = comm_tensor.half() #(comm_tensor*self.numeric_scaling).half()
-                comm_tensor = comm_tensor.bfloat16() 
+                comm_tensor = comm_tensor.half() #(comm_tensor*self.numeric_scaling).half()
+                #comm_tensor = comm_tensor.bfloat16() 
             self._name_tensors[name] = (tensor, comm_tensor)
             new_name, new_tensor = self._tensor_group.push_tensor(name, comm_tensor)
             if new_tensor is not None:
@@ -127,8 +127,8 @@ class MergedCommAllReduce:
                 comm_tensor = tensor
             if self.fp16:
                 #comm_tensor = (comm_tensor*self.numeric_scaling).half()
-                #comm_tensor = comm_tensor.half() 
-                comm_tensor = comm_tensor.bfloat16() 
+                comm_tensor = comm_tensor.half() 
+                #comm_tensor = comm_tensor.bfloat16() 
             self._name_tensors[name] = (tensor, comm_tensor)
             handle = hvd.allreduce_async_(comm_tensor, op=hvd.Sum)
             self.handles.append(handle)
