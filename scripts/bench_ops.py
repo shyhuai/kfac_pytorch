@@ -18,8 +18,8 @@ def compute_eigen(matrix, output):
     add_value_to_diagonal(A, 0.002)
     #d = torch.inverse(A); Q=None
     d = torchsso.utils.inv(A); Q=None
-    if output is not None:
-        output.copy_(d)
+    #if output is not None:
+    #    output.copy_(d)
     #d, Q = tcmm.f_symeig(A)
     #Q = Q.transpose(-2, -1)
     #d, Q = torch.symeig(A, eigenvectors=True)
@@ -71,7 +71,7 @@ def bench_gemm(m, n, num_iters, warmup=5):
 
 
 def bench():
-    ns = range(2048, 8192, 1024) 
+    ns = range(64, 8192, 64) 
     #ns = range(64, 512+64, 64) 
     #ns = range(6272, 8192*2, 1024) 
     #ns = range(3, 512+64, 64) 
@@ -82,8 +82,8 @@ def bench():
         num_iters = 50
         if n > 2**19:
             num_iters = 10
-        #t = bench_ops(n, num_iters)
-        t = bench_gemm(n, n, num_iters)
+        t = bench_ops(n, num_iters)
+        #t = bench_gemm(n, n, num_iters)
         print('%d,%f'%(n,t))
 
 def bench_from_log():
@@ -170,7 +170,7 @@ def check():
     #print('bA1: ', _goback(d1, Q1))
 
 if __name__ == '__main__':
-    #bench()
-    bench_from_log()
+    bench()
+    #bench_from_log()
     #bench_customize_comm()
     #check()

@@ -8,6 +8,7 @@ kfac="${kfac:-1}"
 epochs="${epochs:-55}"
 kfac_name="${kfac_name:-inverse}"
 exclude_parts="${exclude_parts:-''}"
+
 MPIPATH=/home/esetstore/.local/openmpi-4.0.1
 PY=/home/esetstore/pytorch1.4/bin/python
 
