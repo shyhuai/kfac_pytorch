@@ -130,11 +130,11 @@ class KFAC(optim.Optimizer):
         self.module_name_map = {}
         self._register_modules(model)
 
-        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=False, fp16=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=False, fp16=False)
         self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
         self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
-        self.multi_comm = MultiTensorComm(symmetric=True, fp16=True)
+        self.multi_comm = MultiTensorComm(symmetric=False, fp16=False)
         self.steps = 0
 
         # Dictionaries keyed by `module` to storing the factors and
@@ -611,7 +611,7 @@ class KFAC(optim.Optimizer):
             #if hvd.rank() == 0:
             #    print('dimension: %d, bcast_time: %f, inverse_time: %f' % (dimension, bcast_time, inverse_time))
 
-            if dimension < 1024:
+            if dimension < 0: #1024:
             #if inverse_time < bcast_time: 
                 bi = -1
             else:

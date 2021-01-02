@@ -13,7 +13,7 @@ def benchmark_comm():
     large_sizes = [1024*1024*i for i in range(1, 513)] # 1M to 512M
     sizes += large_sizes
     profiler = CommunicationProfiler(comm_op, sync_op, sizes)
-    sizes, times = profiler.benchmark()
+    sizes, times = profiler.benchmark(num_iters=20)
     if hvd.rank() == 0:
         for s, t in zip(sizes, times):
             print(s, t)
