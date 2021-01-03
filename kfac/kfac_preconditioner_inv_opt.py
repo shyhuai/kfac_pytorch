@@ -223,6 +223,12 @@ class KFAC(optim.Optimizer):
                 self.name_module_map[module_name] = module
                 self.module_name_map[module] = module_name
                 name_idx += 1
+        if hvd.rank() == 0:
+            ele = 0
+            for name, p in model.named_parameters():
+                ele += p.numel()
+            logger.info('# of layers: %d, # of params: %d', len(self.modules), ele)
+
 
     def _init_A(self, factor, module):
         """Initialize memory for factor A and its eigendecomp"""
