@@ -239,6 +239,8 @@ def get_model(args):
         model = models.resnext101_32x8d()
     elif args.model.lower() == 'densenet121':
         model = torchvision.models.densenet121(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'densenet201':
+        model = torchvision.models.densenet201(num_classes=1000,pretrained=False)
     elif args.model.lower() == 'vgg16':
         model = torchvision.models.vgg16(num_classes=1000,pretrained=False)
     elif args.model.lower() == 'inceptionv3':
@@ -431,5 +433,5 @@ if __name__ == '__main__':
         #validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
-    if args.verbose:
-        logger.info("\nTraining time: %s", str(timedelta(seconds=time.time() - start)))
+    #if args.verbose:
+    #    logger.info("\nTraining time: %s", str(timedelta(seconds=time.time() - start)))

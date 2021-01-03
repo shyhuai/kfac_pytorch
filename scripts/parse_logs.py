@@ -45,9 +45,9 @@ def read_multiple_speeds():
     kfac_name='inverse_opt'
 
     exclude_parts = ['']+exclude_parts_full.split(',')
-    #dnn='resnet50';density=1;bs=32;lr=1.2;nw=16
+    dnn='resnet50';density=1;bs=32;lr=1.2;nw=64
     #dnn='resnet152';density=1;bs=8;lr=1.2;nw=16
-    dnn='resnet34';density=1;bs=64;lr=1.2;nw=64
+    #dnn='resnet34';density=1;bs=64;lr=1.2;nw=64
     speeds = []
 
     if kfac_name.find('opt') >= 0:
@@ -63,7 +63,8 @@ def read_multiple_speeds():
             exclude_part = ep 
         else:
             exclude_part = ','.join(exclude_parts[1:idx+1])
-        fn = '%s/timing_imagenet_thres1024_%s_kfac1_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
+        #fn = '%s/timing_imagenet_thres1024_%s_kfac1_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
+        fn = '%s/timing_imagenet_%s_kfac1_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
         try:
             speed_avg, _ = read_speed(fn)
         except:
