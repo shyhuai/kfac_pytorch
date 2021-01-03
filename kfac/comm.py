@@ -2,6 +2,7 @@ import torch
 import horovod.torch as hvd
 import numpy as np
 
+sync_tensor = torch.zeros(1)
 
 class TensorGroup:
     def __init__(self, tensor_names, single_layer, tensors=None):
@@ -303,4 +304,7 @@ class MultiTensorComm:
                 offset += numel 
         self.handles.clear()
 
-
+def barrier():
+    torch.cuda.synchronize()
+    handle = hvd.broadcast_async_(sync_tensor, root_rank=0)
+    hvd.synchronize(handle)
