@@ -130,8 +130,8 @@ class KFAC(optim.Optimizer):
         self.module_name_map = {}
         self._register_modules(model)
 
-        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=True, single_layer=False, symmetric=True, fp16=False)
+        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=False, fp16=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=False, fp16=False)
         self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
         self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
         self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
@@ -222,6 +222,12 @@ class KFAC(optim.Optimizer):
                 self.name_module_map[module_name] = module
                 self.module_name_map[module] = module_name
                 name_idx += 1
+        if hvd.rank() == 0:
+            ele = 0
+            for name, p in model.named_parameters():
+                ele += p.numel()
+            logger.info('# of layers: %d, # of params: %d', len(self.modules), ele)
+
 
     def _init_A(self, factor, module):
         """Initialize memory for factor A and its eigendecomp"""
