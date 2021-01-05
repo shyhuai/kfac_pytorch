@@ -85,7 +85,7 @@ def compute_and_communication():
     prefit_comms = alpha + beta * sym_sizes
 
     ax.plot(sizes1, fitted1, label='Inverse computation time', color='#3c78d8ff')
-    ax.plot(sizes1, prefit_comms, label='Symtric matrix communication time', color='#cc0000ff')
+    ax.plot(sizes1, prefit_comms, label='Symmetric matrix communication time', color='#cc0000ff')
 
     ax.set_xlabel('Height or width of a symmetric matrix')
     ax.set_ylabel('Time [s]')
