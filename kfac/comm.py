@@ -24,7 +24,7 @@ class TensorGroup:
             group_indices_by_name[t] = (group_idx, len(current_group))
             current_group.append(t)
             #if i % len(self._tensor_names) == 0 and i > 0:
-            if not self._single_layer and i % 5 == 0 and i > 0:
+            if not self._single_layer and i % 3 == 0 and i > 0:
                 groups.append(current_group)
                 current_group = []
                 group_idx += 1
