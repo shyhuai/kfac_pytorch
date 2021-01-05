@@ -1,6 +1,7 @@
 import torch
 import horovod.torch as hvd
 import numpy as np
+from kfac.utils  import estimate_allreduce_time
 
 sync_tensor = torch.zeros(1)
 
@@ -8,8 +9,10 @@ class TensorGroup:
     def __init__(self, tensor_names, single_layer, tensors=None):
         self._tensor_names = tensor_names
         self._single_layer = single_layer
-        self._tensors = tensors
         self._groups, self._group_indices_by_name = self._generate_groups()
+        self.reset_merge()
+
+    def reset_merge(self):
         self._group_flags = [[0]*len(g) for g in self._groups]
         self._group_keys = [':'.join(g) for g in self._groups]
         self._group_storages = [[None] * len(g) for g in self._groups]
@@ -78,10 +81,83 @@ class TensorGroup:
                 t.copy_(buf.data[offset:offset+numel].view(t.shape))
                 offset += numel 
 
-    def update_groups(self, tensors):
-        if self._tensors is not None:
+    def update_groups(self, sizes, times, symmetric=False, reverse=False):
+        if self._single_layer:
             return
-        self._tensors = tensors
+        self._groups, self._group_indices_by_name = self._generate_groups_spd(sizes, times, symmetric, reverse)
+        self.reset_merge()
+
+    def _generate_groups_spd(self, sizes, times, symmetric, reverse=False):
+        num_of_workers = hvd.size()
+        def __calculate_comm_start(tc, tb, taob, L):
+            taoc = [0] * L 
+            taoc[L-1] = taob[L-1] + tb[L-1]
+            for l in range(L-1)[::-1]:
+                taoc[l] = max(taoc[l+1] + tc[l+1], taob[l] + tb[l])
+            return taoc
+        def __merge(taob, tc, p, l):
+            tc[l] = 0
+            p[l-1] = p[l-1]+p[l]
+            p[l] = 0
+            tc[l-1] = estimate_allreduce_time(p[l-1], num_of_workers)
+        seq_layernames = self._tensor_names #[::-1]
+        p = sizes[:][::-1]
+
+        if symmetric:
+            p = [np.sqrt(s) * (np.sqrt(s)+1) /2 for s in sizes]
+
+        L = len(sizes)
+
+        tc = [estimate_allreduce_time(s, num_of_workers) for s in sizes]
+
+        tb = list(times)[::-1]
+        taob = [0]*L
+        for l in range(0,L-1)[::-1]:
+            taob[l] = taob[l+1] + tb[l+1]
+        taoc = __calculate_comm_start(tc, tb, taob, L)
+        groups = []
+        group = []
+        idx = 0
+        key_groupidx_maps = {}
+        l = L-1
+        key = seq_layernames[l] 
+        group_indices_by_name = {}
+        key_groupidx_maps[key] = idx
+        alpha = 0.0122 * 0.5
+        for l in range(1, L)[::-1]:
+            key = seq_layernames[l]
+            group_indices_by_name[key] = (idx, len(group))
+            group.append(key)
+            key_groupidx_maps[key] = idx
+            current_taob = taob[l-1] + tb[l-1]
+            merged=False
+            if current_taob < taoc[l]+tc[l]:
+                if taoc[l] > current_taob:
+                    __merge(taob, tc, p, l)
+                    taoc = __calculate_comm_start(tc, tb, taob, L)
+                    merged=True
+                else:
+                    t_wait = current_taob - taoc[l]
+                    t_saved = alpha
+                    if t_wait < t_saved:
+                        __merge(taob, tc, p, l)
+                        taoc = __calculate_comm_start(tc, tb, taob, L)
+                        merged=True
+            if not merged:
+                idx += 1
+                groups.append(group)
+                group = []
+        l = 0
+        key = seq_layernames[l]
+        key_groupidx_maps[key] = idx
+        group_indices_by_name[key] = (idx, len(group))
+        group.append(key)
+        groups.append(group)
+
+        if hvd.rank() == 0:
+            print('Merged sizes: ', p[::-1])
+            print('# of parameters: ', np.sum(p))
+        return groups, group_indices_by_name
 
 
 class MergedCommAllReduce:
@@ -146,6 +222,10 @@ class MergedCommAllReduce:
             self._name_tensors[name] = (tensor, comm_tensor)
             handle = hvd.allreduce_async_(comm_tensor, op=hvd.Sum)
             self.handles.append(handle)
+
+    def update_groups(self, sizes, times, reverse=False):
+        if self.merge and self._tensor_group:
+            self._tensor_group.update_groups(sizes, times, self.symmetric, reverse)
 
     def synchronize(self):
         for h in self.handles:
@@ -246,6 +326,7 @@ class MultiTensorComm:
         self.symmetric = symmetric
         self.fp16 = fp16
         self.merged_tensors = {}
+
 
     def bcast_async_(self, names, tensors, rank):
         #name = 'merged_tensor_comm_'+','.join(names)
