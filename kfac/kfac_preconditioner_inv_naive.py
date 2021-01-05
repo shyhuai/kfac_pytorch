@@ -295,8 +295,6 @@ class KFAC(optim.Optimizer):
               the eigendecomposition.
         """
         if hvd.rank() in ranks:
-            #if self.m_A[module].shape[1] >= 2304:
-            #    return
             self._distributed_compute_eigen(self.m_A[module], 
                     self.m_QA[module], self.m_dA[module], ranks)
         else:
@@ -309,8 +307,6 @@ class KFAC(optim.Optimizer):
         See `_update_eigen_A` for more info`
         """
         if hvd.rank() in ranks:
-            #if self.m_G[module].shape[1] >= 2304:
-            #    return
             self._distributed_compute_eigen(self.m_G[module], 
                     self.m_QG[module], self.m_dG[module], ranks)
         else:

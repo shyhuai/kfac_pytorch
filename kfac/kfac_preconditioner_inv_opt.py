@@ -131,10 +131,10 @@ class KFAC(optim.Optimizer):
         self._register_modules(model)
 
         self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=True, single_layer=False, symmetric=True, fp16=False)
         self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
         self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
-        self.multi_comm = MultiTensorComm(symmetric=True, fp16=True)
+        self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
         self.steps = 0
 
         # Dictionaries keyed by `module` to storing the factors and
@@ -522,6 +522,8 @@ class KFAC(optim.Optimizer):
                 if not self.exclude_communicate_inverse:
                     if hvd.size() > 1 and rank_g >= 0:
                         self.multi_comm.bcast_async_([name], [self.m_QA[module], self.m_QG[module]], rank_g)
+                        #self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_g)
+                        #self.multi_comm.bcast_async_([name+'mQG'], [self.m_QG[module]], rank_g)
             if self.exclude_communicate_inverse and not self.exclude_compute_inverse:
                 # should have a barriar
                 if hvd.size() > 1:
@@ -615,7 +617,8 @@ class KFAC(optim.Optimizer):
             #if hvd.rank() == 0:
             #    print('dimension: %d, bcast_time: %f, inverse_time: %f' % (dimension, bcast_time, inverse_time))
 
-            if dimension < 1024:
+            if dimension < 1400:
+            #if dimension < 0:
             #if inverse_time < bcast_time: 
                 bi = -1
             else:
