@@ -144,4 +144,5 @@ dmypy.json
 # VIM
 *.swp
 
+*.tar.gz
 pdfresults/

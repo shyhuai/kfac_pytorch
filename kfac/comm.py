@@ -2,6 +2,7 @@ import torch
 import horovod.torch as hvd
 import numpy as np
 
+sync_tensor = torch.zeros(1)
 
 class TensorGroup:
     def __init__(self, tensor_names, single_layer, tensors=None):
@@ -23,7 +24,7 @@ class TensorGroup:
             group_indices_by_name[t] = (group_idx, len(current_group))
             current_group.append(t)
             #if i % len(self._tensor_names) == 0 and i > 0:
-            if not self._single_layer and i % 3 == 0 and i > 0:
+            if not self._single_layer and i % 5 == 0 and i > 0:
                 groups.append(current_group)
                 current_group = []
                 group_idx += 1
@@ -264,16 +265,20 @@ class MultiTensorComm:
         name = ','.join(names)
         if name not in self.merged_tensors:
             size = 0
-            for t in comm_tensors:
-                size += t.numel()
-            buf = comm_tensors[0].new_zeros(size)
-            self.merged_tensors[name] = buf
+            if len(comm_tensors) > 1:
+                for t in comm_tensors:
+                    size += t.numel()
+                buf = comm_tensors[0].new_zeros(size)
+                self.merged_tensors[name] = buf
+            else:
+                self.merged_tensors[name] = comm_tensors[0]
         buf = self.merged_tensors[name]
-        offset = 0
-        for t in comm_tensors:
-            numel = t.numel()
-            buf.data[offset:offset+numel].copy_(t.view(numel))
-            offset += numel
+        if len(comm_tensors) > 1:
+            offset = 0
+            for t in comm_tensors:
+                numel = t.numel()
+                buf.data[offset:offset+numel].copy_(t.view(numel))
+                offset += numel
         #handle = hvd.broadcast_async_(buf, rank, name=name)
         handle = hvd.broadcast_async_(buf, rank)
         self.handles.append((handle, names, tensors, comm_tensors))
@@ -303,4 +308,7 @@ class MultiTensorComm:
                 offset += numel 
         self.handles.clear()
 
-
+def barrier():
+    torch.cuda.synchronize()
+    handle = hvd.broadcast_async_(sync_tensor, root_rank=0)
+    hvd.synchronize(handle)
