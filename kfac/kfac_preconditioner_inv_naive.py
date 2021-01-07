@@ -479,8 +479,8 @@ class KFAC(optim.Optimizer):
             handles = []
 
             #eigen_ranks = self._generate_eigen_ranks(epoch)
-            #eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-            eigen_ranks = self._generate_eigen_ranks_naive(epoch)
+            eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
+            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
 
             for module in self.modules:
                 ranks_a, ranks_g = eigen_ranks[module]
