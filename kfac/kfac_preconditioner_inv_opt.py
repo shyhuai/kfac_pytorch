@@ -13,6 +13,7 @@ from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
 from kfac.utils import estimate_bcast_time, estimate_inverse_time 
 from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier
+from kfac.profiling import LayerwiseProfiler
 import logging
 import tcmm
 import torchsso
@@ -130,12 +131,20 @@ class KFAC(optim.Optimizer):
         self.module_name_map = {}
         self._register_modules(model)
 
-        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=False, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=False, fp16=False)
+        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names[::-1], prefix='backward', merge=True, single_layer=False, symmetric=True, fp16=False)
         self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
         self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
         self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
         self.steps = 0
+
+        self.dynamic_merge = True #False
+        self.profiling = False
+        #if self.profiling:
+        self.fw_profiler = LayerwiseProfiler(self.module_names)
+        self.bw_profiler = LayerwiseProfiler(self.module_names[::-1])
+        self.fw_factor_sizes = {}
+        self.bw_factor_sizes = {}
 
         # Dictionaries keyed by `module` to storing the factors and
         # eigendecompositions
@@ -183,6 +192,14 @@ class KFAC(optim.Optimizer):
 
     def _compute_forward_factor(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
+            if self.profiling:
+                name = self.module_name_map[module]
+                if name == self.module_names[0]:
+                    self.fw_profiler.start()
+                self.fw_profiler.layer_begin(name)
+                if module in self.m_A:
+                    self.fw_factor_sizes[name] = self.m_A[module].data.numel()
+
             self.m_a[module] = input[0].data
             if not self.exclude_compute_factor:
                 self._update_module_A(module)
@@ -198,6 +215,14 @@ class KFAC(optim.Optimizer):
 
     def _compute_backward_factor(self, module, grad_input, grad_output):
         if self.steps % self.fac_update_freq == 0:
+            if self.profiling:
+                name = self.module_name_map[module]
+                if name == self.module_names[-1]:
+                    self.bw_profiler.start()
+                self.bw_profiler.layer_end(name)
+                if module in self.m_G:
+                    self.bw_factor_sizes[name] = self.m_G[module].data.numel()
+
             self.m_g[module] = grad_output[0].data
             if not self.exclude_compute_factor:
                 self._update_module_G(module)
@@ -515,7 +540,9 @@ class KFAC(optim.Optimizer):
                 name = self.module_name_map[module]
                 if not self.exclude_compute_inverse:
                     self._update_inverse_A(module, ranks_a)
-                #if hvd.size() > 1 and rank_a >= 0:
+                if not self.exclude_communicate_inverse:
+                    if hvd.size() > 1 and rank_a >= 0:
+                        self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
                 #    self.inverseA_merged_comm.bcast_async_(name, self.m_QA[module], rank_a)
 
                 if not self.exclude_compute_inverse:
@@ -527,9 +554,9 @@ class KFAC(optim.Optimizer):
                 #rank_to_tensors[rank_a].append((name, self.m_QA[module], self.m_QG[module]))
                 if not self.exclude_communicate_inverse:
                     if hvd.size() > 1 and rank_g >= 0:
-                        self.multi_comm.bcast_async_([name], [self.m_QA[module], self.m_QG[module]], rank_g)
-                        #self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_g)
-                        #self.multi_comm.bcast_async_([name+'mQG'], [self.m_QG[module]], rank_g)
+                        #self.multi_comm.bcast_async_([name], [self.m_QA[module], self.m_QG[module]], rank_g)
+                        #self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
+                        self.multi_comm.bcast_async_([name+'mQG'], [self.m_QG[module]], rank_g)
             if self.exclude_communicate_inverse and not self.exclude_compute_inverse:
                 # should have a barriar
                 if hvd.size() > 1:
@@ -557,6 +584,27 @@ class KFAC(optim.Optimizer):
 
         self._update_scale_grad(updates)
 
+        if self.dynamic_merge and hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
+            if self.steps == 5:
+                self.profiling = True
+            elif self.steps == 25:
+                fw_layerwise_times = torch.tensor(self.fw_profiler.get_results())
+                bw_layerwise_times = torch.tensor(self.bw_profiler.get_results())
+                hvd.broadcast_(fw_layerwise_times, root_rank=0)
+                hvd.broadcast_(bw_layerwise_times, root_rank=0)
+                fw_layerwise_times = fw_layerwise_times.numpy() 
+                bw_layerwise_times = bw_layerwise_times.numpy()
+                if hvd.rank() == 0:
+                    pass
+                    #logger.info('fw_layerwise_times: %s, sum: %f', fw_layerwise_times, np.sum(fw_layerwise_times))
+                    #logger.info('bw_layerwise_times: %s, sum: %f', bw_layerwise_times, np.sum(bw_layerwise_times))
+
+                fw_factor_sizes = [self.fw_factor_sizes[m] for m in self.module_names]
+                bw_factor_sizes = [self.bw_factor_sizes[m] for m in self.module_names[::-1]]
+                self.fw_merged_comm.update_groups(fw_factor_sizes, fw_layerwise_times, reverse=False)
+                self.bw_merged_comm.update_groups(bw_factor_sizes, bw_layerwise_times, reverse=True)
+                self.profiling = False  
+
         self.steps += 1
 
     def _generate_eigen_ranks_naive(self, epoch):
@@ -569,9 +617,8 @@ class KFAC(optim.Optimizer):
             # Get ranks to compute this layer on
             n = self._get_diag_blocks(module, diag_blocks)
             ranks_a = self.rank_iter.next(n)
-            ranks_g = ranks_a 
-            #ranks_g = self.rank_iter.next(n) if self.distribute_layer_factors \
-            #                                 else ranks_a
+            #ranks_g = ranks_a 
+            ranks_g = self.rank_iter.next(n) 
             module_ranks[module] = (ranks_a, ranks_g)
             buckets[ranks_a[0]] += self.m_A[module].shape[1]
             buckets[ranks_g[0]] += self.m_G[module].shape[1]
@@ -611,9 +658,9 @@ class KFAC(optim.Optimizer):
         for i in descending_sorted_idx:
             factor = module_factors[i]
             dimension = dimensions[i]
-            if factor[-1] == 'G':
-                dimension_G += dimension * dimension
-                continue
+            #if factor[-1] == 'G':
+            #    dimension_G += dimension #* dimension
+            #    continue
 
             m_i = self.module_names.index(factor[0:-2])
             m = self.modules[m_i]
@@ -631,10 +678,11 @@ class KFAC(optim.Optimizer):
                 bi = np.argmin(buckets)
                 buckets[bi] += dimension
             if factor[-1] == 'A':
-                dimension_A += dimension * dimension
+                dimension_A += dimension #* dimension
                 A_ranks[m] = (bi,)
-                G_ranks[m] = (bi,)
+                #G_ranks[m] = (bi,)
             else:
+                dimension_G += dimension #* dimension
                 G_ranks[m] = (bi,)
         for m in self.modules:
             module_ranks[m] = (A_ranks[m], G_ranks[m])

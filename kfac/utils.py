@@ -325,6 +325,14 @@ def estimate_bcast_time(n, nworkers):
         return 2*5*4*1.2636384924990847e-05+1.0847816780156976e-10*n*4
     return 2*5*4*6.374037687522862e-06 + 1.840345743984339e-10* n*4
 
+alpha_allreduce = 0.0122
+beta_allreduce = 1.45e-9
+#alpha_allreduce, beta_allreduce = 0.0023476410788581382*3, 9.643300782166769e-10
+def estimate_allreduce_time(n, nworkers):
+    alpha = alpha_allreduce
+    beta = beta_allreduce 
+    return alpha + beta * n
+
 inverse_times = None 
 def estimate_inverse_time(dimension, dnn='resnet'):
     global inverse_times
