@@ -2,6 +2,8 @@ import torch
 import horovod.torch as hvd
 import numpy as np
 from kfac.utils  import estimate_allreduce_time, alpha_allreduce
+import logging
+logger = logging.getLogger()
 
 sync_tensor = torch.zeros(1)
 
@@ -39,6 +41,9 @@ class TensorGroup:
         if len(current_group) > 0:
             groups.append(current_group)
         return groups, group_indices_by_name
+
+    def is_merged(self):
+        return len(self._tensor_names) != len(self._groups)
 
     def get_group_index_by_name(self, name):
         group_idx, sub_idx = self._group_indices_by_name[name]
@@ -166,8 +171,8 @@ class TensorGroup:
         groups.append(group)
 
         if hvd.rank() == 0:
-            print('Merged sizes: ', p)
-            print('# of parameters: ', np.sum(p))
+            logger.info('Merged sizes: %s', p)
+            logger.info('# of parameters: %f', np.sum(p))
         return groups, group_indices_by_name
 
 
@@ -181,6 +186,7 @@ class MergedCommAllReduce:
         self.op = hvd.Sum
         if merge:
             self._tensor_group = TensorGroup(tensor_names, single_layer=single_layer) 
+            self.merge = self._tensor_group.is_merged()
         else:
             self._tensor_group = None
         self._name_tensors = {}
@@ -236,6 +242,7 @@ class MergedCommAllReduce:
     def update_groups(self, sizes, times, reverse=False):
         if self.merge and self._tensor_group:
             self._tensor_group.update_groups(sizes, times, self.symmetric, reverse=reverse)
+            self.merge = self._tensor_group.is_merged()
 
     def synchronize(self):
         for h in self.handles:

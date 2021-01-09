@@ -132,13 +132,13 @@ class KFAC(optim.Optimizer):
         self._register_modules(model)
 
         self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names[::-1], prefix='backward', merge=True, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names[::-1], prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
         self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
         self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
         self.steps = 0
 
-        self.dynamic_merge = True #False
+        self.dynamic_merge = True
         self.profiling = False
         #if self.profiling:
         self.fw_profiler = LayerwiseProfiler(self.module_names)
