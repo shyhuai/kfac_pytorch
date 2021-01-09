@@ -46,29 +46,32 @@ def read_speed(logfile):
 def read_multiple_speeds():
     LOGHOME='./logs'
     exclude_parts_full='CommunicateInverse,ComputeInverse,CommunicateFactor,ComputeFactor'
-    kfac_name='inverse_opt'
+    #kfac_name='inverse_opt'
     #kfac_name='inverse_naive'
-    #kfac_name='inverse_naive_nopar'
+    kfac_name='inverse_naive_nopar'
     #kfac_name='inverse'
 
     exclude_parts = ['']+exclude_parts_full.split(',')
-    #post_str = '2' # SPD-KFAC
+    #post_str = '2r1fp16' # SPD-KFAC
+    #post_str = '_dynamicmergefp16' # SPD-KFAC
+    post_str = '_dynamicmerge_ns4' # SPD-KFAC
     #post_str = '_notf'
     #post_str = '_ttf'
-    post_str = '2rfp32'
+    #post_str = '2rfp32'
     #dnn='resnet50';density=1;bs=32;lr=1.2;nw=64
-    #dnn='resnet152';density=1;bs=8;lr=1.2;nw=64
+    dnn='resnet152';density=1;bs=8;lr=1.2;nw=64
     #dnn='densenet201';density=1;bs=16;lr=1.2;nw=64
-    dnn='inceptionv4';density=1;bs=16;lr=1.2;nw=64
+    #dnn='inceptionv4';density=1;bs=16;lr=1.2;nw=64
     #dnn='resnet34';density=1;bs=64;lr=1.2;nw=64
     speeds = []
 
-    if kfac_name.find('opt') >= 0:
+    if False and kfac_name.find('opt') >= 0:
         speed_avg0 = 0
     else:
         exclude_part = '\'\''
-        fn = '%s/timing_imagenet_%s_kfac0_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
+        #fn = '%s/timing_imagenet_%s_kfac0_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
         #fn = '%s/timing_imagenet_thres1024_%s_kfac0_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
+        fn = '%s/timing%s_imagenet_thres1024_%s_kfac0_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, post_str, dnn, nw, bs, kfac_name, exclude_part)
         speed_avg0, _ = read_speed(fn)
     for idx, ep in enumerate(exclude_parts):
         if idx == 0:
@@ -77,10 +80,10 @@ def read_multiple_speeds():
             exclude_part = ep 
         else:
             exclude_part = ','.join(exclude_parts[1:idx+1])
-        if kfac_name in ['inverse_opt', 'inverse_naive_nopar']:
-            fn = '%s/timing%s_imagenet_thres1024_%s_kfac1_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, post_str, dnn, nw, bs, kfac_name, exclude_part)
-        else:
-            fn = '%s/timing_imagenet_%s_kfac1_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
+        #if kfac_name in ['inverse_opt', 'inverse_naive_nopar']:
+        fn = '%s/timing%s_imagenet_thres1024_%s_kfac1_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, post_str, dnn, nw, bs, kfac_name, exclude_part)
+        #else:
+        #    fn = '%s/timing_imagenet_%s_kfac1_gpu%d_bs%d_%s_ep_%s.log' % (LOGHOME, dnn, nw, bs, kfac_name, exclude_part)
         try:
             speed_avg, _ = read_speed(fn)
         except:

@@ -29,10 +29,14 @@ def model_bcast_log():
     #fn='logs/nccl-bcast-n16IB.log'
     #fn='logs/nccl-bcast-n64.log'
     #sizes, comms, errors = reader.read_times_from_nccl_log(fn, start=1024, end=1024*1024*512, original=True)
-    #comm_op = 'allreduce';short='ar'
-    comm_op = 'broadcast';short='bcast'
-    fn='logs/%s-n64-ib1-largesize.log' % comm_op
-    sizes, comms= reader.read_from_log_mean_std(fn)
+    comm_op = 'allreduce';short='ar'
+    #comm_op = 'broadcast';short='bcast'
+    #fn='logs/%s-n64-ib1-largesize.log' % comm_op
+    #fn='logs/%s-n64-ib1-smallsize.log' % comm_op
+    fn='logs/nccl-%s-n64.log' % comm_op
+    #sizes, comms= reader.read_from_log_mean_std(fn)
+    sizes, comms, errors = reader.read_times_from_nccl_log(fn, start=1024*1024, end=1024*1024*512, original=True)
+    sizes = np.array(sizes)/4
     print('sizes: ', sizes)
     print('comms: ', comms)
     #print('errors: ', errors)
@@ -57,8 +61,8 @@ def model_bcast_log():
     mf = matplotlib.ticker.ScalarFormatter(useMathText=True)
     mf.set_powerlimits((-2,2))
     plt.gca().yaxis.set_major_formatter(mf)
-    plt.savefig('%s/%s-communicaion-model.pdf' % (OUTPUT_PATH, comm_op))
-    #plt.show()
+    #plt.savefig('%s/%s-communicaion-model.pdf' % (OUTPUT_PATH, comm_op))
+    plt.show()
 
 
 if __name__ == '__main__':
