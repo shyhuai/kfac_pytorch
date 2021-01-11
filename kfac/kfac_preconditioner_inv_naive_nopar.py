@@ -134,7 +134,7 @@ class KFAC(optim.Optimizer):
 
         self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
-        self.multi_comm = MultiTensorComm(symmetric=False, fp16=False)
+        self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
 
         # Dictionaries keyed by `module` to storing the factors and
         # eigendecompositions

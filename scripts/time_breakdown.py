@@ -21,10 +21,10 @@ def plot_breakdown_naive():
 
     dnn='resnet50'
     sgd = [0.132,    0, 0,    0, 0, 0]
-    ssgd = [0.132,    0.067, 0,    0, 0, 0]
-    kfac = [0.132,    0, 0.205, 0,    0.282, 0]
-    dkfac = [0.132,    0.199-0.132, 0.404-0.199, 0.704-0.404, 0.282, 0]
-    dkfacmp = [0.132,    0.199-0.132, 0.404-0.199, 0.704-0.404, 0.736-0.704, 0.882-0.736]
+    ssgd = [0.132,    0.1968-0.132, 0,    0, 0, 0]
+    kfac = [0.132,    0, 0.4058-0.1968, 0,    0.8706-0.5783, 0]
+    dkfac = [0.132,    0.1968-0.132, 0.4058-0.1968, 0.5783-0.4058, 0.8706-0.5783, 0]
+    dkfacmp = [0.132,    0.1968-0.132, 0.4058-0.1968, 0.5783-0.4058, 0.6295-0.5783, 0.7635-0.6295]
 
     fig, ax = plt.subplots(figsize=(5.8,4))
 
@@ -132,27 +132,28 @@ def plot_breakdown_spdkfac():
     xticklabels = ['ResNet-50', 'ResNet-152', 'DenseNet-201', 'Inception-v4']
     dnns = ['resnet50', 'resnet152', 'densenet201', 'inceptionv4']
     #algos = ['dkfac', 'dkfac-mp', 'spd-kfac']
-    algos = ['mpd-kfac', 'spd-kfac']
+    algos = ['dkfac', 'mpd-kfac', 'spd-kfac']
+    labels=['D-K.', 'MPD-K.', 'SPD-K.']
     data = {'resnet50':  # [compute, communicate gradient, compute factor, communicate factor, compute inverse, communicate inverse]
                     {
-                     #'dkfac':    [0.132, 0.199, 0.404, 0.704, 0.736, 0.882],
-                     'mpd-kfac': [0.132, 0.199, 0.404, 0.5784, 0.6248, 0.7842],
-                     'spd-kfac': [0.132, 0.199, 0.404, 0.4918, 0.5926, 0.6342],
+                     'dkfac':    [0.132, 0.1968, 0.4083, 0.5783, 0.8525, 0.8525],
+                     'mpd-kfac': [0.132, 0.1968, 0.4083, 0.5783, 0.6295, 0.7635],
+                     'spd-kfac': [0.132, 0.1968, 0.4083, 0.5064, 0.6114, 0.6755],
                      }, 
             'resnet152':  {
-                     #'dkfac':    [0.132, 0.199, 0.404, 0.704, 0.736, 0.882],
-                     'mpd-kfac': [0.1140, 0.2712, 0.4682, 0.8939, 0.9597, 1.3866], 
-                     'spd-kfac': [0.1140, 0.2712, 0.4682, 0.7497, 0.9325, 1.0701],
+                     'dkfac':    [0.1140, 0.2730, 0.4657, 0.9048, 1.5807, 1.5807],
+                     'mpd-kfac': [0.1140, 0.2730, 0.4657, 0.9016, 0.9555, 1.3933], 
+                     'spd-kfac': [0.1140, 0.2730, 0.4657, 0.7417, 1.0231, 1.1689],
                      }, 
             'densenet201':  {
-                     #'dkfac':    [0.132, 0.199, 0.404, 0.704, 0.736, 0.882],
-                     'mpd-kfac': [0.178, 0.3681, 0.6777, 0.9997, 1.0567, 1.4013],
-                     'spd-kfac': [0.178, 0.3681, 0.6777, 0.9452, 1.0370, 1.1981], 
+                     'dkfac':    [0.178, 0.3643, 0.6829, 1.0146, 1.4964, 1.4964],
+                     'mpd-kfac': [0.178, 0.3643, 0.6806, 1.0308, 1.0660, 1.5340],
+                     'spd-kfac': [0.178, 0.3643, 0.6806, 0.9243, 1.3266, 1.3615], 
                      }, 
             'inceptionv4':  {
-                     #'dkfac':    [0.132, 0.199, 0.404, 0.704, 0.736, 0.882],
-                     'mpd-kfac': [0.134, 0.2642, 0.4613, 0.7574, 0.7947, 1.0660],
-                     'spd-kfac': [0.134, 0.2642, 0.4613, 0.6790, 0.7470, 0.9046],
+                     'dkfac':    [0.134, 0.2669, 0.4648, 0.7551, 1.1857, 1.1857],
+                     'mpd-kfac': [0.134, 0.2669, 0.4597, 0.7547, 0.8034, 1.1473],
+                     'spd-kfac': [0.134, 0.2669, 0.4597, 0.6635, 0.9174, 0.9907],
                      }, 
 
             }
@@ -162,12 +163,11 @@ def plot_breakdown_spdkfac():
         s = 1+1.0/(tf/min(tc,tb)+max(r,1./r))
         return s
     count = len(dnns)
-    width = 0.3; margin = 0.02
+    width = 0.2; margin = 0.02
     s = (1 - (width*count+(count-1) *margin))/2+width
     ind = np.array([s+i+1 for i in range(count)])
-    labels=['MPD-K.', 'SPD-K.']
     
-    for i, algo in enumerate(algos):
+    for ia, algo in enumerate(algos):
         newind = ind+s*width+(s+1)*margin
         bp = []; gradcomm=[];factorcomp=[];factorcomm=[]; inversecomp=[]; inversecomm=[]
         one_group = [[] for i in range(len(names))]
@@ -188,13 +188,14 @@ def plot_breakdown_spdkfac():
             bottom += np.array(d)
         s += 1 
         #ax.text(4, 4, 'ehhlo', color='b')
-        utils.autolabel(p, ax, labels[i], 0, FONTSIZE-2)
-    ax.set_ylim(top=ax.get_ylim()[1]*1.05)
+        utils.autolabel(p, ax, labels[ia], 90, FONTSIZE-2)
+    ax.set_ylim(top=ax.get_ylim()[1]*1.15)
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(legend_p, names, ncol=3, handletextpad=0.2, columnspacing =1., loc='upper center', fontsize=FONTSIZE, bbox_to_anchor=[0.5, 1.2])
     ax.set_ylabel('Time [s]')
     #ax.set_xticks(newind-width-margin/2)
-    ax.set_xticks(newind-width/2-margin/2)
+    #ax.set_xticks(newind-width/2-margin/2)
+    ax.set_xticks(newind-width*2/2-margin*2/2)
     ax.set_xticklabels(xticklabels)
     utils.update_fontsize(ax, FONTSIZE)
     plt.savefig('%s/spdkfac-vs-mpd-fac-timebreakdown.pdf' % (OUTPUT_PATH), bbox_inches='tight')
@@ -216,28 +217,28 @@ def plot_breakdown_pipelining():
     labels=['Naive', 'LW w/o TF', 'LW w/ TTF', 'SP w/ OTF']
     data = {'resnet50':  
                     {
-                     'mpd-kfac':  [0.2051, 0.3794],
-                     'lw-wo-tf':  [0.2051, 0.4152],
-                     'lw-wi-ttf': [0.2051, 0.3379],
-                     'sp-wi-otf': [0.2051, 0.2928],
+                     'mpd-kfac':  [0.2115, 0.3814],
+                     'lw-wo-tf':  [0.2115, 0.4174],
+                     'lw-wi-ttf': [0.2115, 0.3401],
+                     'sp-wi-otf': [0.2115, 0.3096],
                      }, 
             'resnet152':  {
-                     'mpd-kfac':  [0.1971, 0.6228],
-                     'lw-wo-tf':  [0.1971, 0.7177],
-                     'lw-wi-ttf': [0.1971, 0.5390],
-                     'sp-wi-otf': [0.1971, 0.4785],
+                     'mpd-kfac':  [0.1927, 0.6285],
+                     'lw-wo-tf':  [0.1927, 0.7158],
+                     'lw-wi-ttf': [0.1927, 0.5371],
+                     'sp-wi-otf': [0.1927, 0.4687],
                      }, 
             'densenet201':  {
-                     'mpd-kfac':  [0.3095, 0.6316],
-                     'lw-wo-tf':  [0.3095, 0.7676],
-                     'lw-wi-ttf': [0.3095, 0.5803],
-                     'sp-wi-otf': [0.3095, 0.5914],
+                     'mpd-kfac':  [0.3163, 0.6665],
+                     'lw-wo-tf':  [0.3163, 0.7714],
+                     'lw-wi-ttf': [0.3163, 0.5841],
+                     'sp-wi-otf': [0.3163, 0.5600],
                      }, 
             'inceptionv4':  {
-                     'mpd-kfac':  [0.1972, 0.4932],
-                     'lw-wo-tf':  [0.1972, 0.6710],
-                     'lw-wi-ttf': [0.1972, 0.4142],
-                     'sp-wi-otf': [0.1972, 0.4149],
+                     'mpd-kfac':  [0.1979, 0.4882],
+                     'lw-wo-tf':  [0.1979, 0.6683],
+                     'lw-wi-ttf': [0.1979, 0.4115],
+                     'sp-wi-otf': [0.1979, 0.3967],
                      }, 
 
             }
@@ -249,7 +250,7 @@ def plot_breakdown_pipelining():
     for i, algo in enumerate(algos):
         newind = ind+s*width+(s+1)*margin
         bp = []; gradcomm=[];factorcomp=[];factorcomm=[]; inversecomp=[]; inversecomm=[]
-        one_group = [[] for i in range(len(names))]
+        one_group = [[] for ii in range(len(names))]
         for dnn in dnns:
             d = data[dnn]
             ald = d[algo]
@@ -292,27 +293,27 @@ def plot_breakdown_bwp():
     #algos = ['dkfac', 'dkfac-mp', 'spd-kfac']
     #algos = ['mpd-kfac', 'spd-kfac']
     algos = ['algo1', 'algo2', 'algo3']
-    labels=['Non-Dist', 'Seq-Dist', 'BWP']
+    labels=['Non-Dist', 'Seq-Dist', 'LBP']
     data = {'resnet50':  
                     {
-                     'algo1':  [0.2735, 0.2735],
-                     'algo2':  [0.0464, 0.2058],
-                     'algo3':  [0.1008, 0.1424],
+                     'algo1':  [0.2742, 0.2742],
+                     'algo2':  [0.0512, 0.1852],
+                     'algo3':  [0.1049, 0.1691],
                      }, 
             'resnet152':  {
-                     'algo1':  [0.6917, 0.6917],
-                     'algo2':  [0.0658, 0.4927],
-                     'algo3':  [0.1828, 0.3204],
+                     'algo1':  [0.6759, 0.6759],
+                     'algo2':  [0.0539, 0.4917],
+                     'algo3':  [0.2814, 0.4271],
                      }, 
             'densenet201':  {
-                     'algo1':  [0.4994, 0.4994],
-                     'algo2':  [0.0569, 0.4016],
-                     'algo3':  [0.0917, 0.2529],
+                     'algo1':  [0.4818, 0.4818],
+                     'algo2':  [0.0352, 0.5032],
+                     'algo3':  [0.4023, 0.4373],
                      }, 
             'inceptionv4':  {
-                     'algo1':  [0.4314, 0.4314],
-                     'algo2':  [0.0373, 0.3086],
-                     'algo3':  [0.0679, 0.2256],
+                     'algo1':  [0.4306, 0.4306],
+                     'algo2':  [0.0487, 0.3926],
+                     'algo3':  [0.2539, 0.3272],
                      }, 
 
             }
@@ -324,7 +325,7 @@ def plot_breakdown_bwp():
     for i, algo in enumerate(algos):
         newind = ind+s*width+(s+1)*margin
         bp = []; gradcomm=[];factorcomp=[];factorcomm=[]; inversecomp=[]; inversecomm=[]
-        one_group = [[] for i in range(len(names))]
+        one_group = [[] for ii in range(len(names))]
         for dnn in dnns:
             d = data[dnn]
             ald = d[algo]
@@ -354,10 +355,53 @@ def plot_breakdown_bwp():
     plt.savefig('%s/bwp-timebreakdown.pdf' % (OUTPUT_PATH), bbox_inches='tight')
     #plt.show()
 
+def plot_breakdown_stepbystep():
+    fig, ax = plt.subplots(figsize=(7.4,4.4))
+    FONTSIZE=12
+
+
+    xticklabels = ['ResNet-50', 'ResNet-152', 'DenseNet-201', 'Inception-v4']
+    dnns = ['resnet50', 'resnet152', 'densenet201', 'inceptionv4']
+    #algos = ['dkfac', 'dkfac-mp', 'spd-kfac']
+    #algos = ['mpd-kfac', 'spd-kfac']
+    algos = ['algo1', 'algo2', 'algo3', 'algo4']
+    labels=['-Pipe-LBP', '+Pipe-LBP', '-Pipe+LBP', '+Pipe+LBP']
+    names = labels
+    colors = ['white', Color.factorcomm_color, Color.inversecomm_color, 'black']
+    resnet50 = [0.8525, 0.7806, 0.7474, 0.6755]
+    resnet152 = [1.5807, 1.4176, 1.3319, 1.1689]
+    densenet201=[1.4964, 1.4061, 1.4519, 1.3615]
+    inceptionv4=[1.1857, 1.0941, 1.0823, 0.9907]
+
+    count = len(dnns)
+    width = 0.2; margin = 0.02
+    s = (1 - (width*count+(count-1) *margin))/2+width
+    ind = np.array([s+i+1 for i in range(count)])
+    
+    legend_p = []
+    for i, algo in enumerate(algos):
+        newind = ind+s*width+(s+1)*margin
+        bp = [resnet50[i], resnet152[i], densenet201[i], inceptionv4[i]]
+        color = colors[i]
+        label = names[i]
+        p = ax.bar(newind, bp, width, color=color,edgecolor='black', label=label)
+        legend_p.append(p[0])
+        s += 1 
+    ax.set_ylim(bottom=0.6)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(legend_p, names, ncol=1, handletextpad=0.2, columnspacing =1., loc='upper left', fontsize=FONTSIZE)
+    ax.set_ylabel('Time [s]')
+    #ax.set_xticks(newind-width-margin/2)
+    ax.set_xticks(newind-width*3/2-margin*3/2)
+    ax.set_xticklabels(xticklabels)
+    utils.update_fontsize(ax, FONTSIZE)
+    plt.savefig('%s/step-by-step.pdf' % (OUTPUT_PATH), bbox_inches='tight')
+    #plt.show()
 
 
 if __name__ == '__main__':
     #plot_breakdown_naive()
-    #plot_breakdown_spdkfac()
+    plot_breakdown_spdkfac()
     #plot_breakdown_pipelining()
-    plot_breakdown_bwp()
+    #plot_breakdown_bwp()
+    #plot_breakdown_stepbystep()

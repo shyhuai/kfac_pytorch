@@ -25,14 +25,14 @@ STANDARD_TITLES = {
 
 DNN_MARKERS = {
         'resnet152':'d',
-        'resnet34':'*',
+        'inceptionv4':'*',
         'densenet201':'o',
         'resnet50':'^',
         }
 
 DNN_COLORS = {
         'resnet152':'green',
-        'resnet34':'red',
+        'inceptionv4':'red',
         'densenet201':'m',
         'resnet50':'black',
         }
@@ -44,7 +44,7 @@ def analyze_tensor_sizes():
         fn = '/Users/lele/shared-server/kfac-logs/%s-matrixsize.log' % (dnn)
         sizes = reader.read_tensor_sizes(fn)
         sizes = [s[0]*(s[0]+1)//2 for s in sizes]
-        print('dnn: ', dnn, ', min: %d, max: %d' % (np.min(sizes), np.max(sizes)))
+        print('dnn: ', dnn, ', min: %d, max: %d, mean: %f' % (np.min(sizes), np.max(sizes), np.mean(sizes)))
         counter_dict = {}
         for s in sizes:
             if s not in counter_dict:
@@ -73,12 +73,17 @@ def analyze_tensor_sizes():
 
     lines = []
     labels = []
-    dnn='resnet34'
-    _plot_dnn_tensor(dnn)
+    #dnn='resnet34'
+    #_plot_dnn_tensor(dnn)
     dnn='resnet50'
     _plot_dnn_tensor(dnn)
     dnn='resnet152'
     _plot_dnn_tensor(dnn)
+    dnn='densenet201'
+    _plot_dnn_tensor(dnn)
+    dnn='inceptionv4'
+    _plot_dnn_tensor(dnn)
+    lines, labels = ax.get_legend_handles_labels()
     lines, labels = ax.get_legend_handles_labels()
 
     #fig.legend(loc='upper center', ncol=3)
@@ -87,8 +92,8 @@ def analyze_tensor_sizes():
     #plt.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
     plt.xscale('log')
     #plt.title(dnn)
-    plt.savefig('%s/%s.pdf' % (OUTPUT_PATH, 'tensordistribution'), bbox_inches='tight')
-    #plt.show()
+    #plt.savefig('%s/%s.pdf' % (OUTPUT_PATH, 'tensordistribution'), bbox_inches='tight')
+    plt.show()
 
 if __name__ == '__main__':
     analyze_tensor_sizes()

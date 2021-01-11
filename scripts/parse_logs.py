@@ -46,10 +46,11 @@ def read_speed(logfile):
 def read_multiple_speeds():
     LOGHOME='./logs'
     exclude_parts_full='CommunicateInverse,ComputeInverse,CommunicateFactor,ComputeFactor'
-    #kfac_name='inverse_opt'
-    #kfac_name='inverse_naive'
+    kfac_name='inverse_opt'
+    kfac_name='inverse_naive'
     kfac_name='inverse_naive_nopar'
     #kfac_name='inverse'
+    nw=32
 
     exclude_parts = ['']+exclude_parts_full.split(',')
     #post_str = '2r1fp16' # SPD-KFAC
@@ -58,11 +59,11 @@ def read_multiple_speeds():
     #post_str = '_notf'
     #post_str = '_ttf'
     #post_str = '2rfp32'
-    #dnn='resnet50';density=1;bs=32;lr=1.2;nw=64
-    dnn='resnet152';density=1;bs=8;lr=1.2;nw=64
-    #dnn='densenet201';density=1;bs=16;lr=1.2;nw=64
-    #dnn='inceptionv4';density=1;bs=16;lr=1.2;nw=64
-    #dnn='resnet34';density=1;bs=64;lr=1.2;nw=64
+    #dnn='resnet50';density=1;bs=32;lr=1.2;
+    #dnn='resnet152';density=1;bs=8;lr=1.2;
+    dnn='densenet201';density=1;bs=16;lr=1.2;
+    #dnn='inceptionv4';density=1;bs=16;lr=1.2;
+    #dnn='resnet34';density=1;bs=64;lr=1.2;
     speeds = []
 
     if False and kfac_name.find('opt') >= 0:

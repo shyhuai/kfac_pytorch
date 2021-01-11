@@ -40,7 +40,7 @@ def read_tensor_sizes(logfile):
             if line.find('torch.Size') >= 0:
                 args = _extract_args(line)
                 workloads.append(args)
-    print(workloads)
+    #print(workloads)
     return workloads
 
 def read_tensorsize_vs_time(logfile):
