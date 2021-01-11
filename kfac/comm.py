@@ -1,7 +1,7 @@
 import torch
 import horovod.torch as hvd
 import numpy as np
-from kfac.utils  import estimate_allreduce_time, alpha_allreduce
+from kfac.utils  import estimate_allreduce_time, get_alpha_beta
 import logging
 logger = logging.getLogger()
 
@@ -139,7 +139,7 @@ class TensorGroup:
         key = seq_layernames[l] 
         group_indices_by_name = {}
         key_groupidx_maps[key] = idx
-        alpha = alpha_allreduce 
+        alpha, beta = get_alpha_beta(num_of_workers)
         for l in range(0, L-1):
             key = seq_layernames[l]
             group_indices_by_name[key] = (idx, len(group))

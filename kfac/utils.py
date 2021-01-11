@@ -327,11 +327,25 @@ def estimate_bcast_time(n, nworkers):
 
 #alpha_allreduce = 0.0122
 #beta_allreduce = 1.45e-9
-alpha_allreduce, beta_allreduce = 0.000929,1.4335e-9 
+#alpha_allreduce, beta_allreduce = 0.000929,1.4335e-9 
+
+p_alpha_beta_100Gbps = {
+        64: (0.00080632079996292579, 1.8*3.2713239529771973e-10),
+        32: (0.00040632079996292579, 1.5*3.2713239529771973e-10),
+        16: (0.00023583677659915685*3, 4.0594787739537565e-10),
+        8: (9.75367204301171e-05, 3.0568230536676206e-10),
+        4: (4.204298980348825e-05, 2.0589360830118177e-10),
+        2: (2.554691138304671e-06, 9.837548167872609e-11)
+        }
+
+def get_alpha_beta(nworkers):
+    alpha_allreduce, beta_allreduce = p_alpha_beta_100Gbps[nworkers]
+    return alpha_allreduce, beta_allreduce/4
+
 def estimate_allreduce_time(n, nworkers):
-    alpha = alpha_allreduce
-    beta = beta_allreduce 
+    alpha, beta = get_alpha_beta(nworkers)
     return alpha + beta * n
+
 
 inverse_times = None 
 def estimate_inverse_time(dimension, dnn='resnet'):
