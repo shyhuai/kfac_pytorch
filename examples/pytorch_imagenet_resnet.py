@@ -37,6 +37,7 @@ import kfac
 import inceptionv4
 
 os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '4' 
+#os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '2' 
 #os.environ['HOROVOD_CYCLE_TIME'] = '0'
 #os.environ['HOROVOD_FUSION_THRESHOLD'] = '0'
 
@@ -171,7 +172,7 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/timing_dynamicmerge_ns4_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    logfile = './logs/debug_timing_dynamicmerge_ns4_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_notf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_ttf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
