@@ -339,8 +339,9 @@ p_alpha_beta_100Gbps = {
         }
 
 def get_alpha_beta(nworkers):
-    alpha_allreduce, beta_allreduce = p_alpha_beta_100Gbps[nworkers]
-    return alpha_allreduce, beta_allreduce/4
+   # alpha_allreduce, beta_allreduce = p_alpha_beta_100Gbps[nworkers]
+    alpha_allreduce, beta_allreduce = 0.000929,1.4335e-9
+    return alpha_allreduce, beta_allreduce
 
 def estimate_allreduce_time(n, nworkers):
     alpha, beta = get_alpha_beta(nworkers)

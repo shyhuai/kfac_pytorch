@@ -670,7 +670,7 @@ class KFAC(optim.Optimizer):
             #if hvd.rank() == 0:
             #    print('dimension: %d, bcast_time: %f, inverse_time: %f' % (dimension, bcast_time, inverse_time))
 
-            if dimension < 1400:
+            if dimension < 1024:
             #if dimension < 0:
             #if inverse_time < bcast_time: 
                 bi = -1
@@ -684,13 +684,17 @@ class KFAC(optim.Optimizer):
             else:
                 dimension_G += dimension #* dimension
                 G_ranks[m] = (bi,)
+        seq_ranks = []
         for m in self.modules:
             module_ranks[m] = (A_ranks[m], G_ranks[m])
+            seq_ranks.append(A_ranks[m])
+            seq_ranks.append(G_ranks[m])
 
         self.module_ranks = module_ranks
         if hvd.rank() == 0:
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('seq-module_ranks: %s', seq_ranks)
             logger.info('# of elementes of A: %d', dimension_A)
             logger.info('# of elementes of G: %d', dimension_G)
         return module_ranks
