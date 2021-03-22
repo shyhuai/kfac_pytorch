@@ -8,7 +8,6 @@ import math
 from distutils.version import LooseVersion
 
 import torch
-torch.multiprocessing.set_start_method('spawn')
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -26,6 +25,8 @@ import kfac
 
 import logging
 import horovod.torch as hvd
+
+#torch.multiprocessing.set_start_method('spawn')
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -64,6 +65,10 @@ parser.add_argument('--weight-decay', type=float, default=5e-4, metavar='W',
                     help='SGD weight decay (default: 5e-4)')
 
 # KFAC Parameters
+parser.add_argument('--kfac-name', type=str, default='inverse',
+                    help='choises: %s' % kfac.kfac_mappers.keys() + ', default: '+'inverse')
+parser.add_argument('--sparse-ratio', type=float, default=1,
+                    help='Specify the sparse ratio if kfac-name is inverse_sparse')
 parser.add_argument('--kfac-update-freq', type=int, default=10,
                     help='iters between kfac inv ops (0 for no kfac updates) (default: 10)')
 parser.add_argument('--kfac-cov-update-freq', type=int, default=1,
@@ -107,7 +112,8 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 # Horovod: initialize library.
 hvd.init()
 
-logfile = './logs/sparse_cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
+logfile = './logs/convergence_cifar10_{}_kfac{}_gpu{}_bs{}_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name)
+#logfile = './logs/sparse_cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
 #logfile = './logs/cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
 hdlr = logging.FileHandler(logfile)
 hdlr.setFormatter(formatter)
@@ -195,13 +201,15 @@ optimizer = optim.SGD(model.parameters(), lr=args.base_lr, momentum=args.momentu
                       weight_decay=args.weight_decay)
 
 if use_kfac:
-    preconditioner = kfac.KFAC(model, lr=args.base_lr, factor_decay=args.stat_decay, 
+    KFAC = kfac.get_kfac_module(args.kfac_name)
+    preconditioner = KFAC(model, lr=args.base_lr, factor_decay=args.stat_decay, 
                                damping=args.damping, kl_clip=args.kl_clip, 
                                fac_update_freq=args.kfac_cov_update_freq, 
                                kfac_update_freq=args.kfac_update_freq,
                                diag_blocks=args.diag_blocks,
                                diag_warmup=args.diag_warmup,
-                               distribute_layer_factors=args.distribute_layer_factors)
+                               distribute_layer_factors=args.distribute_layer_factors,
+                               sparse_ratio=args.sparse_ratio)
     kfac_param_scheduler = kfac.KFACParamScheduler(preconditioner,
             damping_alpha=args.damping_alpha,
             damping_schedule=args.damping_schedule,

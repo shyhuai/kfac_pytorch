@@ -172,7 +172,7 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/debug_timing_dynamicmerge_ns1_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    logfile = './logs/convergence_timing_dynamicmerge_ns1_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_notf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_ttf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
@@ -435,7 +435,7 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
-        #validate(epoch, model, loss_func, val_loader, args)
+        validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     #if args.verbose:
