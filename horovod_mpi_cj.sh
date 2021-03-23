@@ -5,6 +5,8 @@ nworkers="${nworkers:-4}"
 batch_size="${batch_size:-32}"
 rdma="${rdma:-1}"
 kfac="${kfac:-1}"
+lr="${lr:-0.1}"
+sparse_ratio="${sparse_ratio:-1}"
 epochs="${epochs:-55}"
 kfac_name="${kfac_name:-inverse}"
 exclude_parts="${exclude_parts:-''}"
@@ -35,13 +37,13 @@ if [ "$dnn" = "resnet32" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_cifar10_resnet.py \
-        --base-lr 0.1 --epochs 100 --kfac-update-freq $kfac --model $dnn --lr-decay 35 75 90 --batch-size $batch_size 
+        --base-lr $lr --epochs 100 --kfac-update-freq $kfac --model $dnn --lr-decay 35 75 90 --batch-size $batch_size --sparse-ratio $sparse_ratio
 else
 #HOROVOD_TIMELINE=./logs/profile-timeline-${dnn}-kfac-${kfac}-json.log 
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_imagenet_resnet.py \
-          --base-lr 0.05 --epochs $epochs --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn --kfac-name $kfac_name --exclude-parts ${exclude_parts} --batch-size $batch_size --lr-decay 10 15 20 28 30 \
+          --base-lr $lr --epochs $epochs --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn --kfac-name $kfac_name --exclude-parts ${exclude_parts} --batch-size $batch_size --lr-decay 10 15 20 28 30 \
           --train-dir /localdata/ILSVRC2012_dataset/train \
           --val-dir /localdata/ILSVRC2012_dataset/val
           #--base-lr 0.0125 --epochs 20 --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn  --batch-size $batch_size --lr-decay 8 14 16 18 --damping 0.0015 \

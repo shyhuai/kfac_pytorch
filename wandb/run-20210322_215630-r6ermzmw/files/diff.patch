@@ -1,0 +1,82 @@
+diff --git a/cluster8 b/cluster8
+index 58cfe44..d6791a9 100644
+--- a/cluster8
++++ b/cluster8
+@@ -1,2 +1,2 @@
+-gpu9 slots=4
+-gpu10 slots=4
++gpu8 slots=4
++gpu7 slots=4
+diff --git a/examples/pytorch_cifar10_resnet.py b/examples/pytorch_cifar10_resnet.py
+index c6d1cfa..4603823 100644
+--- a/examples/pytorch_cifar10_resnet.py
++++ b/examples/pytorch_cifar10_resnet.py
+@@ -26,6 +26,8 @@ import kfac
+ import logging
+ import horovod.torch as hvd
+ 
++import wandb
++
+ #torch.multiprocessing.set_start_method('spawn')
+ 
+ logger = logging.getLogger()
+@@ -112,7 +114,12 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
+ # Horovod: initialize library.
+ hvd.init()
+ 
+-logfile = './logs/convergence_cifar10_{}_kfac{}_gpu{}_bs{}_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name)
++
++logfilename = 'convergence_cifar10_{}_kfac{}_gpu{}_bs{}_{}_lr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr)
++if hvd.rank() == 0:
++    wandb.init(project='kfac', entity='shyhuai', name=logfilename, config=args)
++
++logfile = './logs/'+logfilename
+ #logfile = './logs/sparse_cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
+ #logfile = './logs/cifar10_{}_kfac{}_gpu{}_bs{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size)
+ hdlr = logging.FileHandler(logfile)
+@@ -283,6 +290,8 @@ def train(epoch):
+                 if args.verbose:
+                     logger.info("[%d][%d] train loss: %.4f, acc: %.3f, time: %.3f, speed: %.3f images/s" % (epoch, batch_idx, train_loss.avg.item(), 100*train_accuracy.avg.item(), avg_time/display, args.batch_size/(avg_time/display)))
+                     avg_time = 0.0
++            if hvd.rank() == 0:
++                wandb.log({"loss": loss})
+         if args.verbose:
+             logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
+ 
+@@ -315,6 +324,8 @@ def test(epoch):
+                 test_accuracy.update(accuracy(output, target))
+             if args.verbose:
+                 logger.info("[%d][0] evaluation loss: %.4f, acc: %.3f" % (epoch, test_loss.avg.item(), 100*test_accuracy.avg.item()))
++                if hvd.rank() == 0:
++                    wandb.log({"val top-1 acc": test_accuracy.avg.item(), "epoch": epoch})
+                 
+                 #t.update(1)
+                 #if i + 1 == len(test_loader):
+diff --git a/horovod_mpi_cj.sh b/horovod_mpi_cj.sh
+index 9c06edb..69776ca 100755
+--- a/horovod_mpi_cj.sh
++++ b/horovod_mpi_cj.sh
+@@ -5,6 +5,7 @@ nworkers="${nworkers:-4}"
+ batch_size="${batch_size:-32}"
+ rdma="${rdma:-1}"
+ kfac="${kfac:-1}"
++lr="${lr:-0.1}"
+ epochs="${epochs:-55}"
+ kfac_name="${kfac_name:-inverse}"
+ exclude_parts="${exclude_parts:-''}"
+@@ -35,13 +36,13 @@ if [ "$dnn" = "resnet32" ]; then
+ $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
+     $params \
+     $PY examples/pytorch_cifar10_resnet.py \
+-        --base-lr 0.1 --epochs 100 --kfac-update-freq $kfac --model $dnn --lr-decay 35 75 90 --batch-size $batch_size 
++        --base-lr $lr --epochs 100 --kfac-update-freq $kfac --model $dnn --lr-decay 35 75 90 --batch-size $batch_size 
+ else
+ #HOROVOD_TIMELINE=./logs/profile-timeline-${dnn}-kfac-${kfac}-json.log 
+ $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
+     $params \
+     $PY examples/pytorch_imagenet_resnet.py \
+-          --base-lr 0.05 --epochs $epochs --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn --kfac-name $kfac_name --exclude-parts ${exclude_parts} --batch-size $batch_size --lr-decay 10 15 20 28 30 \
++          --base-lr $lr --epochs $epochs --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn --kfac-name $kfac_name --exclude-parts ${exclude_parts} --batch-size $batch_size --lr-decay 10 15 20 28 30 \
+           --train-dir /localdata/ILSVRC2012_dataset/train \
+           --val-dir /localdata/ILSVRC2012_dataset/val
+           #--base-lr 0.0125 --epochs 20 --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn  --batch-size $batch_size --lr-decay 8 14 16 18 --damping 0.0015 \
