@@ -24,6 +24,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data.distributed
+import torchvision
 from torch.optim.lr_scheduler import LambdaLR
 from torchvision import datasets, transforms
 import horovod.torch as hvd
@@ -33,7 +34,12 @@ import imagenet_resnet as models
 from utils import *
 
 import kfac
-os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '8' 
+import inceptionv4
+
+os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '10' 
+#os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '2' 
+#os.environ['HOROVOD_CYCLE_TIME'] = '0'
+#os.environ['HOROVOD_FUSION_THRESHOLD'] = '0'
 
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
 
@@ -81,6 +87,10 @@ def initialize():
                         help='label smoothing (default 0.1)')
 
     # KFAC Parameters
+    parser.add_argument('--kfac-name', type=str, default='inverse',
+            help='choises: %s' % kfac.kfac_mappers.keys() + ', default: '+'inverse')
+    parser.add_argument('--exclude-parts', type=str, default='',
+            help='choises: CommunicateInverse,ComputeInverse,CommunicateFactor,ComputeFactor')
     parser.add_argument('--kfac-update-freq', type=int, default=10,
                         help='iters between kfac inv ops (0 = no kfac) (default: 10)')
     parser.add_argument('--kfac-cov-update-freq', type=int, default=1,
@@ -121,8 +131,8 @@ def initialize():
     hvd.init()
     torch.manual_seed(args.seed)
     args.verbose = 1 if hvd.rank() == 0 else 0
-    if args.verbose:
-        logger.info(args)
+    #if args.verbose:
+    #    logger.info(args)
 
     if args.cuda:
         torch.cuda.set_device(hvd.local_rank())
@@ -146,7 +156,8 @@ def initialize():
 
     # Horovod: broadcast resume_from_epoch from rank 0 (which will have
     # checkpoints) to other ranks.
-    args.resume_from_epoch = hvd.broadcast(torch.tensor(args.resume_from_epoch),
+    if hvd.size() > 1:
+        args.resume_from_epoch = hvd.broadcast(torch.tensor(args.resume_from_epoch),
                                            root_rank=0,
                                            name='resume_from_epoch').item()
 
@@ -161,13 +172,19 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
+    logfile = './logs/convergence_timing_dynamicmerge_ns1_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/timing_notf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/timing_ttf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/timing_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/debug_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    #logfile = './logs/inverse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     #logfile = './logs/sparse_imagenet_resnet50_kfac{}_gpu{}_bs{}.log'.format(args.kfac_update_freq, hvd.size(), args.batch_size)
     hdlr = logging.FileHandler(logfile)
     hdlr.setFormatter(formatter)
     logger.addHandler(hdlr) 
-    logger.info(args)
+    if args.verbose:
+        logger.info(args)
 
     return args
 
@@ -175,10 +192,10 @@ def get_datasets(args):
     # Horovod: limit # of CPU threads to be used per worker.
     if args.single_threaded:
         torch.set_num_threads(4)
-        kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
+        kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
     else:
-        torch.set_num_threads(4)
-        kwargs = {'num_workers': 4, 'pin_memory': True} if args.cuda else {}
+        torch.set_num_threads(8)
+        kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
 
     train_dataset = datasets.ImageFolder(
             args.train_dir,
@@ -225,6 +242,16 @@ def get_model(args):
         model = models.resnext50_32x4d()
     elif args.model.lower() == 'resnext101':
         model = models.resnext101_32x8d()
+    elif args.model.lower() == 'densenet121':
+        model = torchvision.models.densenet121(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'densenet201':
+        model = torchvision.models.densenet201(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'vgg16':
+        model = torchvision.models.vgg16(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'inceptionv3':
+        model = torchvision.models.inception_v3(num_classes=1000,pretrained=False)
+    elif args.model.lower() == 'inceptionv4':
+        model = inceptionv4.inceptionv4(num_classes=1000,pretrained=False)
     else:
         raise ValueError('Unknown model \'{}\''.format(args.model))
 
@@ -237,14 +264,15 @@ def get_model(args):
                           momentum=args.momentum, weight_decay=args.wd)
 
     if args.kfac_update_freq > 0:
-        preconditioner = kfac.KFAC(
+        KFAC = kfac.get_kfac_module(args.kfac_name)
+        preconditioner = KFAC(
                 model, lr=args.base_lr, factor_decay=args.stat_decay,
                 damping=args.damping, kl_clip=args.kl_clip,
                 fac_update_freq=args.kfac_cov_update_freq,
                 kfac_update_freq=args.kfac_update_freq,
                 diag_blocks=args.diag_blocks,
                 diag_warmup=args.diag_warmup,
-                distribute_layer_factors=args.distribute_layer_factors)
+                distribute_layer_factors=args.distribute_layer_factors, exclude_parts=args.exclude_parts)
         kfac_param_scheduler = kfac.KFACParamScheduler(
                 preconditioner,
                 damping_alpha=args.damping_alpha,
@@ -272,8 +300,9 @@ def get_model(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
 
     # Horovod: broadcast parameters & optimizer state.
-    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
-    hvd.broadcast_optimizer_state(optimizer, root_rank=0)
+    if hvd.size() > 1:
+        hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+        hvd.broadcast_optimizer_state(optimizer, root_rank=0)
 
     lrs = create_lr_schedule(hvd.size(), args.warmup_epochs, args.lr_decay)
     lr_scheduler = [LambdaLR(optimizer, lrs)]
@@ -309,10 +338,10 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
             stime = time.time()
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
-            optimizer.zero_grad()
             iotime = time.time()
             iotimes.append(iotime-stime)
 
+            optimizer.zero_grad()
             for i in range(0, len(data), args.batch_size):
                 data_batch = data[i:i + args.batch_size]
                 target_batch = target[i:i + args.batch_size]
@@ -347,6 +376,8 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
                     logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
                     iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
                 avg_time = 0.0
+            if batch_idx > 510:
+                break
         logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
 
     if not STEP_FIRST:
@@ -407,5 +438,5 @@ if __name__ == '__main__':
         validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
-    if args.verbose:
-        logger.info("\nTraining time: %s", str(timedelta(seconds=time.time() - start)))
+    #if args.verbose:
+    #    logger.info("\nTraining time: %s", str(timedelta(seconds=time.time() - start)))

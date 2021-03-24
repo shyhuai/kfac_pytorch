@@ -2,6 +2,10 @@ import itertools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tcmm
+
+TENSOR_CORE=False
+TENSOR_CORE_THRES=1024 #2048*1024
 
 def try_contiguous(x):
     if not x.is_contiguous():
@@ -85,6 +89,12 @@ def update_running_avg(new, current, alpha):
     current += new
     current *= (1 - alpha)
 
+def use_tensor_core(tensor):
+    #if TENSOR_CORE and tensor.shape[0] > TENSOR_CORE_THRES and tensor.shape[1] > TENSOR_CORE_THRES:
+    if TENSOR_CORE and tensor.shape[1] > TENSOR_CORE_THRES:
+        return True
+    return False
+
 residualsA = {}
 residualsG = {}
 def sparsification(tensor, layer, ratio=0.01, residuals=None):
@@ -150,7 +160,7 @@ class ComputeA:
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        a = a/spatial_size
+        a = a.div_(spatial_size)
         batch_size = a.size(0)
         return a
 
@@ -173,10 +183,15 @@ class ComputeA:
         a = a.view(-1, a.size(-1))
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
-        a = a/spatial_size
+        a = a.div_(spatial_size)
         # FIXME(CW): do we need to divide the output feature map's size?
-        #return a.t() @ (a / batch_size)
-        return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        #return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        #return a.t() @ (a / batch_size) 
+        #print('a dimension conv: ', a.shape)
+        if use_tensor_core(a):
+            return tcmm.f_gemm_ex(a.t(), a/batch_size)
+        else:
+            return a.t() @ (a / batch_size) 
 
     @staticmethod
     def linear(a, layer):
@@ -187,8 +202,13 @@ class ComputeA:
         #    a = torch.mean(a, list(range(len(a.shape)))[1:-1])
         if layer.bias is not None:
             a = torch.cat([a, a.new(a.size(0), 1).fill_(1)], 1)
+        #return torch.einsum('ki,kj->ij', a, a/batch_size) 
         #return a.t() @ (a / batch_size)
-        return torch.einsum('ki,kj->ij', a, a/batch_size) 
+        #print('a dimension linear: ', a.shape)
+        if use_tensor_core(a):
+            return tcmm.f_gemm_ex(a.t(), a/batch_size)
+        else:
+            return a.t() @ (a / batch_size)
 
 
 class ComputeG:
@@ -269,9 +289,12 @@ class ComputeG:
         if batch_averaged:
             g = g * batch_size
         g = g * spatial_size
-        cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
+        #cov_g = torch.einsum('ki,kj->ij', g, g/g.size(0)) 
         #cov_g = g.t() @ (g / g.size(0))
-
+        if use_tensor_core(g): 
+            cov_g = tcmm.f_gemm_ex(g.t(), g/g.size(0))
+        else:
+            cov_g = g.t() @ (g / g.size(0))
         return cov_g
 
     @staticmethod
@@ -282,9 +305,59 @@ class ComputeG:
         #    #g = g.view(-1, g.shape[-1])
         #    g = torch.mean(g, list(range(len(g.shape)))[1:-1])
         if batch_averaged:
-            cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
+            #cov_g = torch.einsum('ki,kj->ij', g, g*batch_size) 
             #cov_g = g.t() @ (g * batch_size)
+            if use_tensor_core(g):
+                cov_g = tcmm.f_gemm_ex(g.t(), g*batch_size)
+            else:
+                cov_g = g.t() @ (g * batch_size)
         else:
-            cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
+            #cov_g = torch.einsum('ki,kj->ij', g, g/batch_size) 
             #cov_g = g.t() @ (g / batch_size)
+            if use_tensor_core(g): 
+                cov_g = tcmm.f_gemm_ex(g.t(), g/batch_size)
+            else:
+                cov_g = g.t() @ (g / batch_size)
         return cov_g
+
+def estimate_bcast_time(n, nworkers):
+    if nworkers == 16:
+        return 2*5*4*1.2636384924990847e-05+1.0847816780156976e-10*n*4
+    return 2*5*4*6.374037687522862e-06 + 1.840345743984339e-10* n*4
+
+#alpha_allreduce = 0.0122
+#beta_allreduce = 1.45e-9
+#alpha_allreduce, beta_allreduce = 0.000929,1.4335e-9 
+
+p_alpha_beta_100Gbps = {
+        64: (0.00080632079996292579, 1.8*3.2713239529771973e-10),
+        32: (0.00040632079996292579, 1.5*3.2713239529771973e-10),
+        16: (0.00023583677659915685*3, 4.0594787739537565e-10),
+        8: (9.75367204301171e-05, 3.0568230536676206e-10),
+        4: (4.204298980348825e-05, 2.0589360830118177e-10),
+        2: (2.554691138304671e-06, 9.837548167872609e-11)
+        }
+
+def get_alpha_beta(nworkers):
+   # alpha_allreduce, beta_allreduce = p_alpha_beta_100Gbps[nworkers]
+    alpha_allreduce, beta_allreduce = 0.000929,1.4335e-9
+    return alpha_allreduce, beta_allreduce
+
+def estimate_allreduce_time(n, nworkers):
+    alpha, beta = get_alpha_beta(nworkers)
+    return alpha + beta * n
+
+
+inverse_times = None 
+def estimate_inverse_time(dimension, dnn='resnet'):
+    global inverse_times
+    if inverse_times is None:
+        inverse_times = {}
+        with open('logs/inverse-%s.log'%dnn) as f:
+            for line in f.readlines():
+                items = line.split(',')
+                if len(items) == 2:
+                    size = int(items[0])
+                    t = float(items[1][:-1])
+                    inverse_times[size] = t
+    return inverse_times[dimension]

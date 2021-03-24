@@ -1,4 +1,7 @@
 logs/
+logs
+kfac-logs/
+kfac-logs
 sbatch_logs/
 saved_logs/
 
@@ -140,3 +143,8 @@ dmypy.json
 
 # VIM
 *.swp
+
+*.tar.gz
+pdfresults/
+wandb/
+wandb/runs*
