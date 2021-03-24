@@ -6,8 +6,8 @@ setup(name='tcmm_cpp',
                    name='tcmm', 
                    sources=['tcmm.cpp', 'tcmm_kernel.cu'],
                    libraries=['cusolver'],
-                   library_dirs=['/usr/local/cuda-10.1/lib64'],
-                   include_dirs=['/usr/local/cuda-10.1/samples/common/inc/']
+                   library_dirs=['/usr/local/cuda-10.2/lib64'],
+                   include_dirs=['/usr/local/cuda-10.2/samples/common/inc/']
                 )],
     cmdclass={'build_ext': BuildExtension})
 
