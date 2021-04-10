@@ -35,6 +35,7 @@ from utils import *
 
 import kfac
 import inceptionv4
+#import wandb
 
 os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '10' 
 #os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '2' 
@@ -89,6 +90,8 @@ def initialize():
     # KFAC Parameters
     parser.add_argument('--kfac-name', type=str, default='inverse',
             help='choises: %s' % kfac.kfac_mappers.keys() + ', default: '+'inverse')
+    parser.add_argument('--sparse-ratio', type=float, default=1,
+                    help='Specify the sparse ratio if kfac-name is inverse_sparse')
     parser.add_argument('--exclude-parts', type=str, default='',
             help='choises: CommunicateInverse,ComputeInverse,CommunicateFactor,ComputeFactor')
     parser.add_argument('--kfac-update-freq', type=int, default=10,
@@ -172,7 +175,12 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfile = './logs/convergence_timing_dynamicmerge_ns1_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
+    logfilename = 'convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
+
+    #if hvd.rank() == 0:
+    #    wandb.init(project='kfac', entity='shyhuai', name=logfilename, config=args)
+
+    logfile = './logs/'+logfilename
     #logfile = './logs/timing_notf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_ttf_imagenet_thres1024_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
     #logfile = './logs/timing_imagenet_{}_kfac{}_gpu{}_bs{}_{}_ep_{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.exclude_parts)
@@ -272,7 +280,8 @@ def get_model(args):
                 kfac_update_freq=args.kfac_update_freq,
                 diag_blocks=args.diag_blocks,
                 diag_warmup=args.diag_warmup,
-                distribute_layer_factors=args.distribute_layer_factors, exclude_parts=args.exclude_parts)
+                distribute_layer_factors=args.distribute_layer_factors, exclude_parts=args.exclude_parts,
+                sparse_ratio=args.sparse_ratio)
         kfac_param_scheduler = kfac.KFACParamScheduler(
                 preconditioner,
                 damping_alpha=args.damping_alpha,
@@ -379,6 +388,8 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
             if batch_idx > 510:
                 break
         logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
+        #if hvd.rank() == 0:
+        #    wandb.log({"loss": train_loss.avg.item(), "epoch": epoch})
 
     if not STEP_FIRST:
         for scheduler in lr_schedules:
@@ -408,6 +419,8 @@ def validate(epoch, model, loss_func, val_loader, args):
                 val_accuracy.update(accuracy(output, target))
             if args.verbose:
                 logger.info("[%d][0] evaluation loss: %.4f, acc: %.3f" % (epoch, val_loss.avg.item(), 100*val_accuracy.avg.item()))
+                #if hvd.rank() == 0:
+                #    wandb.log({"val top-1 acc": val_accuracy.avg.item(), "epoch": epoch})
 
                 #t.update(1)
                 #if i + 1 == len(val_loader):
@@ -435,7 +448,7 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
-        validate(epoch, model, loss_func, val_loader, args)
+        #validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     #if args.verbose:

@@ -95,6 +95,7 @@ def use_tensor_core(tensor):
         return True
     return False
 
+
 residualsA = {}
 residualsG = {}
 def sparsification(tensor, layer, ratio=0.01, residuals=None):
@@ -109,11 +110,39 @@ def sparsification(tensor, layer, ratio=0.01, residuals=None):
     if residuals is not None:
         residuals[layer].data = t + 0.0 
         residuals[layer].data[tmpindexes] = 0. 
-    thres = tmpvalues[-1]
-    bool_indexes = abs_t < thres
-    t[bool_indexes] = 0.0
+    t.sub_(residuals[layer])
+    #thres = tmpvalues[-1]
+    #bool_indexes = abs_t < thres
+    #print(bool_indexes)
+    #t[bool_indexes] = 0.0
     tensor = t.view(tensor.shape)
     return tensor
+
+#def sparsification(tensor, layer, ratio=0.01, residuals=None):
+#    t = tensor.view(-1)
+#    k = int(ratio * t.numel())
+#    if k == 0:
+#        tensor.fill_(0.0)
+#        return tensor
+#    if residuals is not None:
+#        if layer not in residuals:
+#            residuals[layer] = torch.zeros_like(t)
+#        t.add_(residuals[layer])
+#    abs_t = torch.abs(t)
+#    tmpvalues, tmpindexes = torch.topk(abs_t, k=k)
+#    if residuals is not None:
+#        residuals[layer].data = t + 0.0 
+#        residuals[layer].data[tmpindexes] = 0. 
+#    thres = tmpvalues[-1]
+#    bool_indexes = abs_t < thres
+#    if bool_indexes.numel() == 0:
+#        tensor.fill_(0.0)
+#        return tensor
+#    t[bool_indexes] = 0.0
+#    tensor = t.view(tensor.shape)
+#    return tensor
+
+
 
 class ComputeA:
 
