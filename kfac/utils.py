@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import tcmm
+import random
 
 TENSOR_CORE=False
 TENSOR_CORE_THRES=1024 #2048*1024
@@ -95,6 +96,7 @@ def use_tensor_core(tensor):
         return True
     return False
 
+
 residualsA = {}
 residualsG = {}
 def sparsification(tensor, layer, ratio=0.01, residuals=None):
@@ -106,14 +108,32 @@ def sparsification(tensor, layer, ratio=0.01, residuals=None):
         t.add_(residuals[layer])
     abs_t = torch.abs(t)
     tmpvalues, tmpindexes = torch.topk(abs_t, k=k)
+    values = tensor[tmpindexes]
     if residuals is not None:
         residuals[layer].data = t + 0.0 
         residuals[layer].data[tmpindexes] = 0. 
-    thres = tmpvalues[-1]
-    bool_indexes = abs_t < thres
-    t[bool_indexes] = 0.0
+    t.sub_(residuals[layer])
     tensor = t.view(tensor.shape)
-    return tensor
+    return values, tmpindexes
+
+def sparsification_randk(tensor, layer, ratio=0.01, residuals=None):
+    t = tensor.view(-1)
+    d = t.numel()
+    k = int(ratio * d)
+    if residuals is not None:
+        if layer not in residuals:
+            residuals[layer] = torch.zeros_like(t)
+        t.data.add_(residuals[layer])
+
+    indice = random.sample(range(d), k)
+    indexes = torch.tensor(indice, device=t.device)
+    values = t[indexes]
+
+    if residuals is not None:
+        residuals[layer].data = t.data + 0.0 
+        residuals[layer].data[indexes] = 0.0
+        t.data.sub_(residuals[layer])
+    return values, indexes 
 
 class ComputeA:
 

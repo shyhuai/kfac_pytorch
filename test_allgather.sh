@@ -32,7 +32,7 @@ params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
     -x LD_LIBRARY_PATH  \
     -x NCCL_IB_DISABLE=0 \
     -x NCCL_SOCKET_IFNAME=ib0 \
-    -x NCCL_DEBUG=VERSION \
+    -x NCCL_DEBUG=INFO \
     -x HOROVOD_CACHE_CAPACITY=0"
 fi
     #-x HOROVOD_FUSION_THRESHOLD=0 \
@@ -40,16 +40,10 @@ fi
 if [ "$dnn" = "resnet32" ] || [ "$dnn" = "resnet56" ] || [ "$dnn" = "resnet110" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
-    $PY examples/pytorch_cifar10_resnet.py \
-        --base-lr $lr --epochs 100 --kfac-update-freq $kfac --model $dnn --lr-decay 35 75 90 --batch-size $batch_size --sparse-ratio $sparse_ratio --kfac-name $kfac_name --damping $damping --warmup-epochs 0
+    $PY scripts/test_allgather.py
 else
 #HOROVOD_TIMELINE=./logs/profile-timeline-${dnn}-kfac-${kfac}-json.log 
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
-    $PY examples/pytorch_imagenet_resnet.py \
-          --base-lr $lr --epochs $epochs --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn --kfac-name $kfac_name --sparse-ratio $sparse_ratio --exclude-parts ${exclude_parts} --batch-size $batch_size --lr-decay 25 35 40 45 50 \
-          --train-dir /localdata/ILSVRC2012_dataset/train \
-          --val-dir /localdata/ILSVRC2012_dataset/val
-          #--base-lr 0.0125 --epochs 20 --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn  --batch-size $batch_size --lr-decay 8 14 16 18 --damping 0.0015 \
-          #--base-lr 0.0125 --epochs $epochs --kfac-update-freq $kfac --kfac-cov-update-freq $kfac --model $dnn --kfac-name $kfac_name --exclude-parts ${exclude_parts} --batch-size $batch_size --lr-decay 25 35 40 45 50 \ 
+    $PY scripts/test_allgather.py
 fi

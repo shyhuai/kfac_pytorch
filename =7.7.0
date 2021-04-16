@@ -1,0 +1,2 @@
+Looking in indexes: https://pypi.tuna.tsinghua.edu.cn/simple
+Requirement already satisfied: cupy-cuda102 in /home/esetstore/pytorch1.8/lib/python3.7/site-packages (8.6.0)
