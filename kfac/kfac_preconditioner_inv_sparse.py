@@ -10,7 +10,7 @@ from kfac.utils import update_running_avg
 from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
-from kfac.utils import sparsification
+from kfac.utils import sparsification, sparsification_randk
 from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier
 import logging
 import tcmm
@@ -140,6 +140,7 @@ class KFAC(optim.Optimizer):
         # eigendecompositions
         self.m_a, self.m_g = {}, {}
         self.m_A, self.m_G = {}, {}
+        self.m_sparseA, self.m_sparseG = {}, {}
         self.m_QA, self.m_QG = {}, {}
         self.m_dA, self.m_dG = {}, {}
         self.m_dA_ranks = {}
@@ -240,7 +241,7 @@ class KFAC(optim.Optimizer):
             self._init_A(a, module)
         update_running_avg(a, self.m_A[module], self.factor_decay)
         if self.sparse:
-            sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+            self.m_sparseA[module] = sparsification_randk(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
 
     def _update_A(self):
         """Compute and update factor A for all modules"""
@@ -262,7 +263,7 @@ class KFAC(optim.Optimizer):
             self._init_G(g, module)
         update_running_avg(g, self.m_G[module], self.factor_decay)
         if self.sparse:
-            sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
+            self.m_sparseG[module] = sparsification_randk(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
 
     def _update_G(self):
         """Compute and update factor G for all modules"""
@@ -621,17 +622,15 @@ class KFAC(optim.Optimizer):
         handles = []
         def _get_value_and_idx(sparse_tensor):
             tensor = sparse_tensor.data.view(-1)
-            d = tensor.numel()
-            k = int(self.sparse_ratio * d)
             one_indexes = tensor != 0.0
             indexes = one_indexes.nonzero().data.squeeze().view(-1)
             values = tensor.data[indexes] 
-            return values[0:k], indexes.int()[0:k]
+            return values, indexes.int()
 
         for i, m in enumerate(self.modules):
             module_name = self.module_names[i]
 
-            A_values, A_indexes = _get_value_and_idx(self.m_A[m].data)
+            A_values, A_indexes = self.m_sparseA[m] #_get_value_and_idx(self.m_A[m].data)
             if A_values.numel() == 0:
                 continue
             A_value_name = module_name + '_A_value'
@@ -641,7 +640,7 @@ class KFAC(optim.Optimizer):
             h_value = hvd.allgather_async(A_values)
             h_idx = hvd.allgather_async(A_indexes)
 
-            G_values, G_indexes = _get_value_and_idx(self.m_G[m].data)
+            G_values, G_indexes = self.m_sparseG[m] #_get_value_and_idx(self.m_G[m].data)
             G_value_name = module_name + '_G_value'
             G_idx_name = module_name + '_G_idx'
             #h_value_G = hvd.allgather_async(G_values, G_value_name)
@@ -649,6 +648,16 @@ class KFAC(optim.Optimizer):
             h_value_G = hvd.allgather_async(G_values)
             h_idx_G = hvd.allgather_async(G_indexes)
             handles.append((h_value, h_idx, h_value_G, h_idx_G))
+
+        num_of_workers = hvd.size()
+        def _decompress(values, indices, output):
+            numel = indices.numel()
+            real_num_values = numel//num_of_workers
+            for i in range(num_of_workers):
+                values = values.data[i*real_num_values:(i+1)*real_num_values]
+                indices = indices.data[i*real_num_values:(i+1)*real_num_values]
+
+                output[indices] += values
 
         for i, handle in enumerate(handles):
             module_name = self.module_names[i]
@@ -661,14 +670,20 @@ class KFAC(optim.Optimizer):
             h_value_A, h_idx_A, h_value_G, h_idx_G = handle
             A_values = hvd.synchronize(h_value_A)
             A_indexes = hvd.synchronize(h_idx_A).long()
-            m_A.scatter_add_(0, A_indexes, A_values)
+            _decompress(A_values, A_indexes, m_A)
+            #print(A_indexes[0])
+            #print(A_values[0])
+            #m_A.scatter_add_(0, A_indexes, A_values)
             m_A.div_(hvd.size())
             
             G_values = hvd.synchronize(h_value_G)
             G_indexes = hvd.synchronize(h_idx_G).long()
-            m_G.scatter_add_(0, G_indexes, G_values)
+            #print('G_I: ', G_indexes[0])
+            #print('G_V: ', G_values[0])
+            #m_G.scatter_add_(0, G_indexes, G_values)
+            _decompress(G_values, G_indexes, m_G)
             m_G.div_(hvd.size())
-        barrier()
+
 
     def _allreduce_eigendecomp(self):
         """Allreduce the eigendecompositions for all layers
