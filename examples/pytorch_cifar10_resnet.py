@@ -172,7 +172,7 @@ def main(args):
     #    with tqdm(total=len(train_loader), 
     #              desc='Epoch {:3d}/{:3d}'.format(epoch + 1, args.epochs),
     #              disable=not verbose) as t:
-        display=1
+        display=20
         avg_time = 0.0
         io_time = 0.0
         if True:
