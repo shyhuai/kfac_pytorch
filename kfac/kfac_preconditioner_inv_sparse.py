@@ -654,10 +654,9 @@ class KFAC(optim.Optimizer):
             numel = indices.numel()
             real_num_values = numel//num_of_workers
             for i in range(num_of_workers):
-                values = values.data[i*real_num_values:(i+1)*real_num_values]
-                indices = indices.data[i*real_num_values:(i+1)*real_num_values]
-
-                output[indices] += values
+                tmp_values = values.data[i*real_num_values:(i+1)*real_num_values]
+                tmp_indices = indices.data[i*real_num_values:(i+1)*real_num_values]
+                output[tmp_indices] += tmp_values
 
         for i, handle in enumerate(handles):
             module_name = self.module_names[i]
@@ -670,18 +669,18 @@ class KFAC(optim.Optimizer):
             h_value_A, h_idx_A, h_value_G, h_idx_G = handle
             A_values = hvd.synchronize(h_value_A)
             A_indexes = hvd.synchronize(h_idx_A).long()
-            _decompress(A_values, A_indexes, m_A)
+            #_decompress(A_values, A_indexes, m_A)
             #print(A_indexes[0])
             #print(A_values[0])
-            #m_A.scatter_add_(0, A_indexes, A_values)
+            m_A.scatter_add_(0, A_indexes, A_values)
             m_A.div_(hvd.size())
             
             G_values = hvd.synchronize(h_value_G)
             G_indexes = hvd.synchronize(h_idx_G).long()
             #print('G_I: ', G_indexes[0])
             #print('G_V: ', G_values[0])
-            #m_G.scatter_add_(0, G_indexes, G_values)
-            _decompress(G_values, G_indexes, m_G)
+            m_G.scatter_add_(0, G_indexes, G_values)
+            #_decompress(G_values, G_indexes, m_G)
             m_G.div_(hvd.size())
 
 
