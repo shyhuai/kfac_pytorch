@@ -106,15 +106,23 @@ def sparsification(tensor, layer, ratio=0.01, residuals=None):
         if layer not in residuals:
             residuals[layer] = torch.zeros_like(t)
         t.add_(residuals[layer])
+
     abs_t = torch.abs(t)
     tmpvalues, tmpindexes = torch.topk(abs_t, k=k)
-    values = tensor[tmpindexes]
+    values = t[tmpindexes]
+
     if residuals is not None:
         residuals[layer].data = t + 0.0 
         residuals[layer].data[tmpindexes] = 0. 
-    t.sub_(residuals[layer])
-    tensor = t.view(tensor.shape)
+        t.sub_(residuals[layer])
+    #tensor = t.view(tensor.shape)
     return values, tmpindexes
+
+def fake_sparsification(tensor, layer, ratio=0.01, residuals=None):
+    t = tensor.view(-1)
+    indexes = (t.abs() > 1e-4).nonzero().data.squeeze().view(-1)
+    values = t[indexes]
+    return values, indexes 
 
 def sparsification_randk(tensor, layer, ratio=0.01, residuals=None):
     t = tensor.view(-1)

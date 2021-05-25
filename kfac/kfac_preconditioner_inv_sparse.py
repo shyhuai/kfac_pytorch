@@ -10,7 +10,7 @@ from kfac.utils import update_running_avg
 from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
-from kfac.utils import sparsification, sparsification_randk
+from kfac.utils import sparsification, sparsification_randk, fake_sparsification
 from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier
 import logging
 import tcmm
@@ -149,7 +149,8 @@ class KFAC(optim.Optimizer):
 
         self.sparse = sparse
         self.sparse_ratio = sparse_ratio
-        self.residualsA, self.residualsG = {}, {}
+        #self.residualsA, self.residualsG = {}, {}
+        self.residualsA, self.residualsG = None, None
 
         self.factor_decay = factor_decay
         self.kl_clip = kl_clip
@@ -241,7 +242,9 @@ class KFAC(optim.Optimizer):
             self._init_A(a, module)
         update_running_avg(a, self.m_A[module], self.factor_decay)
         if self.sparse:
-            self.m_sparseA[module] = sparsification_randk(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+            #self.m_sparseA[module] = sparsification_randk(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+            #self.m_sparseA[module] = sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+            self.m_sparseA[module] = fake_sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
 
     def _update_A(self):
         """Compute and update factor A for all modules"""
@@ -263,7 +266,9 @@ class KFAC(optim.Optimizer):
             self._init_G(g, module)
         update_running_avg(g, self.m_G[module], self.factor_decay)
         if self.sparse:
-            self.m_sparseG[module] = sparsification_randk(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
+            #self.m_sparseG[module] = sparsification_randk(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
+            #self.m_sparseG[module] = sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
+            self.m_sparseG[module] = fake_sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
 
     def _update_G(self):
         """Compute and update factor G for all modules"""
@@ -645,9 +650,10 @@ class KFAC(optim.Optimizer):
             G_idx_name = module_name + '_G_idx'
             #h_value_G = hvd.allgather_async(G_values, G_value_name)
             #h_idx_G = hvd.allgather_async(G_indexes, G_idx_name)
-            h_value_G = hvd.allgather_async(G_values)
-            h_idx_G = hvd.allgather_async(G_indexes)
-            handles.append((h_value, h_idx, h_value_G, h_idx_G))
+            if G_values is not None and G_values.numel() > 0:
+                h_value_G = hvd.allgather_async(G_values)
+                h_idx_G = hvd.allgather_async(G_indexes)
+                handles.append((h_value, h_idx, h_value_G, h_idx_G))
 
         num_of_workers = hvd.size()
         def _decompress(values, indices, output):
@@ -669,18 +675,18 @@ class KFAC(optim.Optimizer):
             h_value_A, h_idx_A, h_value_G, h_idx_G = handle
             A_values = hvd.synchronize(h_value_A)
             A_indexes = hvd.synchronize(h_idx_A).long()
-            #_decompress(A_values, A_indexes, m_A)
+            _decompress(A_values, A_indexes, m_A)
             #print(A_indexes[0])
             #print(A_values[0])
-            m_A.scatter_add_(0, A_indexes, A_values)
+            #m_A.scatter_add_(0, A_indexes, A_values)
             m_A.div_(hvd.size())
             
             G_values = hvd.synchronize(h_value_G)
             G_indexes = hvd.synchronize(h_idx_G).long()
             #print('G_I: ', G_indexes[0])
             #print('G_V: ', G_values[0])
-            m_G.scatter_add_(0, G_indexes, G_values)
-            #_decompress(G_values, G_indexes, m_G)
+            #m_G.scatter_add_(0, G_indexes, G_values)
+            _decompress(G_values, G_indexes, m_G)
             m_G.div_(hvd.size())
 
 

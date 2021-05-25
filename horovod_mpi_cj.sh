@@ -37,7 +37,7 @@ params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
 fi
     #-x HOROVOD_FUSION_THRESHOLD=0 \
 
-if [ "$dnn" = "resnet32" ] || [ "$dnn" = "resnet56" ] || [ "$dnn" = "resnet110" ]; then
+if [ "$dnn" = "resnet20" ] || [ "$dnn" = "resnet32" ] || [ "$dnn" = "resnet56" ] || [ "$dnn" = "resnet110" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_cifar10_resnet.py \
