@@ -175,7 +175,8 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfilename = 'convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
+    #logfilename = 'convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
+    logfilename = 'ic2021_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
 
     if hvd.rank() == 0:
         wandb.init(project='kfac', entity='hkust-distributedml', name=logfilename, config=args)
