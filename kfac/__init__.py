@@ -10,6 +10,8 @@ from kfac.kfac_preconditioner_inv_opt2 import KFAC as KFAC_INV_OPT2
 from kfac.kfac_preconditioner_opt import KFAC as KFAC_EIGEN_OPT
 from kfac.kfac_preconditioner_small_ag import KFAC as KFAC_INV_SMALL_AG
 
+from kfac.kfac_preconditioner_inv_reduce import KFAC as KFAC_INV_REDUCE
+
 from kfac.sparse_hessian_preconditioner import SparseHessian 
 from kfac.minibatch_fisher import MinibatchFisher
 from kfac.sparse_sgd import SparseSGD
@@ -29,6 +31,7 @@ kfac_mappers = {
     'sparse_hessian': SparseHessian,
     'minibatch_fisher': MinibatchFisher,
     'sparse_sgd': SparseSGD,
+    'inverse_reduce': KFAC_INV_REDUCE
         }
 
 def get_kfac_module(kfac='eigen'):
