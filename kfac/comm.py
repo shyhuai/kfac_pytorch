@@ -347,7 +347,6 @@ class MultiTensorComm:
 
 
     def bcast_async_(self, names, tensors, rank):
-        #name = 'merged_tensor_comm_'+','.join(names)
         if self.fp16:
             comm_tensors = [t.half() for t in tensors]
         else:
@@ -362,15 +361,15 @@ class MultiTensorComm:
             comm_tensors = sym_comm_tensors
 
         name = ','.join(names)
-        if name not in self.merged_tensors:
-            size = 0
-            if len(comm_tensors) > 1:
+        if len(comm_tensors) > 1:
+            if name not in self.merged_tensors:
+                size = 0
                 for t in comm_tensors:
                     size += t.numel()
                 buf = comm_tensors[0].new_zeros(size)
                 self.merged_tensors[name] = buf
-            else:
-                self.merged_tensors[name] = comm_tensors[0]
+        else:
+            self.merged_tensors[name] = comm_tensors[0]
         buf = self.merged_tensors[name]
         if len(comm_tensors) > 1:
             offset = 0
@@ -378,7 +377,6 @@ class MultiTensorComm:
                 numel = t.numel()
                 buf.data[offset:offset+numel].copy_(t.view(numel))
                 offset += numel
-        #handle = hvd.broadcast_async_(buf, rank, name=name)
         handle = hvd.broadcast_async_(buf, rank)
         self.handles.append((handle, names, tensors, comm_tensors))
 
@@ -386,7 +384,7 @@ class MultiTensorComm:
         for h in self.handles:
             handle, names, tensors, comm_tensors = h
             hvd.synchronize(handle)
-            #name = 'merged_tensor_comm_'+','.join(names)
+
             name = ','.join(names)
 
             offset = 0
@@ -433,15 +431,15 @@ class MultiTensorReduce:
 
         name = ','.join(names)
 
-        if name not in self.merged_tensors:
-            size = 0
-            if len(comm_tensors) > 1:
+        if len(comm_tensors) > 1:
+            if name not in self.merged_tensors:
+                size = 0
                 for t in comm_tensors:
                     size += t.numel()
                 buf = comm_tensors[0].new_zeros(size)
                 self.merged_tensors[name] = buf
-            else:
-                self.merged_tensors[name] = comm_tensors[0]
+        else:
+            self.merged_tensors[name] = comm_tensors[0]
         buf = self.merged_tensors[name]
         if len(comm_tensors) > 1:
             offset = 0
@@ -450,12 +448,15 @@ class MultiTensorReduce:
                 buf.data[offset:offset+numel].copy_(t.view(numel))
                 offset += numel
         handle = self.merged_comm.reduce(buf, rank)
-        self.handles.append((handle, names, tensors, comm_tensors))
+        self.handles.append((handle, names, tensors, comm_tensors, rank))
 
     def synchronize(self):
         self.merged_comm.synchronize()
         for h in self.handles:
-            handle, names, tensors, comm_tensors = h
+            handle, names, tensors, comm_tensors, rank = h
+
+            if rank != hvd.rank():
+                continue
 
             name = ','.join(names)
             offset = 0
@@ -463,6 +464,7 @@ class MultiTensorReduce:
 
             if self.fp16:
                 buf = buf.float()
+
             for i, t in enumerate(tensors):
                 numel = comm_tensors[i].numel()
                 comm_tensor = buf.data[offset:offset+numel]
@@ -476,6 +478,7 @@ class MultiTensorReduce:
                     t.copy_(comm_tensor.view(t.shape))
                 offset += numel 
         self.handles.clear()
+
 
 def barrier():
     torch.cuda.synchronize()
