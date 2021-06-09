@@ -34,7 +34,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
     std::string name = std::string("Communicator");
     py::class_<Communicator>(m, name.c_str())
-        .def(py::init<int, int>())
+        .def(py::init<int, int, int>())
         .def("allReduce", &Communicator::allReduce)
         .def("multiBcast", &Communicator::multiBcast)
         .def("reduce", &Communicator::reduce)

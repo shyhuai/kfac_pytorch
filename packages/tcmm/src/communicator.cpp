@@ -2,9 +2,9 @@
 #include "communicator.h"
 
 
-Communicator::Communicator(int rank, int size):m_rank(rank), m_size(size) {
+Communicator::Communicator(int rank, int size, int nstreams=1):m_rank(rank), m_size(size) {
     m_current_comm = 0;
-    m_num_comms = 1;
+    m_num_comms = nstreams;
 
     m_nccl_ids = new ncclUniqueId[1000];
     m_streams = new cudaStream_t[1000];

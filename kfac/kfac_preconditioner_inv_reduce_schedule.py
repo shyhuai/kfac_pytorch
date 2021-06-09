@@ -11,7 +11,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
-from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier
+from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier, MultiTensorReduce
 import logging
 import tcmm
 import torchsso
@@ -131,9 +131,9 @@ class KFAC(optim.Optimizer):
         self._register_modules(model)
 
         self.steps = 0
-        nstreams = 1
-        self.fw_merged_comm = tcmm.Communicator(hvd.rank(), hvd.size(), nstreams)
-        self.bw_merged_comm = tcmm.Communicator(hvd.rank(), hvd.size(), nstreams)
+
+        self.fw_merged_comm = MultiTensorReduce(symmetric=True)
+        self.bw_merged_comm = MultiTensorReduce(symmetric=True)
         self.multi_comm = MultiTensorComm(symmetric=False, fp16=False)
 
         # Dictionaries keyed by `module` to storing the factors and
@@ -589,8 +589,8 @@ class KFAC(optim.Optimizer):
             rank_a = ranks_a[0]
             rank_g = ranks_g[0]
 
-            self.fw_merged_comm.reduce(self.m_A[m].data, rank_a)
-            self.bw_merged_comm.reduce(self.m_G[m].data, rank_g)
+            self.fw_merged_comm.reduce_async_([name+'A'], [self.m_A[m].data], rank_a)
+            self.bw_merged_comm.reduce_async_([name+'G'], [self.m_G[m].data], rank_g)
 
         self.fw_merged_comm.synchronize()
         self.bw_merged_comm.synchronize()

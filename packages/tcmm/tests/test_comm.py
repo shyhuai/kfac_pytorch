@@ -43,11 +43,33 @@ def reduce():
     local_rank = hvd.local_rank()
     size = hvd.size()
     torch.cuda.set_device(local_rank)
-    communicator = tcmm.Communicator(rank, size)
-    tensor = torch.rand(2).cuda()
-    print('before rank: %d' % rank, tensor)
-    communicator.reduce(tensor, 0)
-    print('after rank: %d' % rank, tensor)
+    nstreams = 1
+    communicator = tcmm.Communicator(rank, size, nstreams)
+    n_elements = 32* 1024
+    iterations = 100
+    tensor = torch.rand(n_elements).cuda()
+    if rank == 0:
+        print('before rank: %d' % rank, time.time())
+    for i in range(nstreams):
+        communicator.reduce(tensor, 0)
+    #communicator.allReduce(tensor)
+    #hvd.allreduce(tensor)
+    communicator.synchronize()
+    start = time.time()
+    previous = start
+    for i in range(iterations):
+        communicator.reduce(tensor, 0)
+        #communicator.allReduce(tensor)
+        #hvd.allreduce(tensor)
+        current = time.time()
+        if rank ==0:
+            print('i: ', i, current-previous)
+        previous = current
+    communicator.synchronize()
+    end = time.time()
+    if rank == 0:
+        print('after rank: %d' % rank, time.time(), (end-start)/iterations)
+        print('throughput: ', n_elements * 4 *1e-9/ ((end-start)/iterations), 'GB/s')
 
 if __name__ == '__main__':
     #allreduce()

@@ -44,7 +44,7 @@ using namespace std;
 
 class Communicator {
 public:
-    Communicator(int rank, int size);
+    Communicator(int rank, int size, int nstreams/*=1*/);
     ~Communicator();
 	//void allReduce(const void* sendbuff, void* recvbuff, int size);
 //std::vector<torch::Tensor> tcmm_symeig(torch::Tensor a) {
