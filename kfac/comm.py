@@ -476,6 +476,7 @@ class MultiTensorReduce:
                     t[lower_indices[0], lower_indices[1]] = t.t()[lower_indices[0], lower_indices[1]]
                 else:
                     t.copy_(comm_tensor.view(t.shape))
+                t.div_(hvd.size())
                 offset += numel 
         self.handles.clear()
 

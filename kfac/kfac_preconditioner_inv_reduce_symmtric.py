@@ -145,7 +145,6 @@ class KFAC(optim.Optimizer):
         self.m_dA_ranks = {}
         self.m_dG_ranks = {}
         self.module_ranks = None
-        self.eigen_ranks = None
 
         self.sparse = sparse
         self.sparse_ratio = sparse_ratio
@@ -184,15 +183,7 @@ class KFAC(optim.Optimizer):
     def _compute_forward_factor(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
             self.m_a[module] = input[0].data
-            if not self.exclude_compute_factor:
-                self._update_module_A(module)
-            if not self.exclude_communicate_factor:
-                if hvd.size() > 1:
-                    name = self.module_name_map[module]
-                    if self.eigen_ranks is not None:
-                        ranks_a, ranks_g = self.eigen_ranks[module]
-                        rank_a = ranks_a[0]
-                        self.fw_merged_comm.reduce_async_([name+'A'], [self.m_A[module].data], rank_a)
+            self._update_module_A(module)
 
     def _save_grad_output(self, module, grad_input, grad_output):
         """Hook for saving gradient w.r.t output"""
@@ -202,17 +193,7 @@ class KFAC(optim.Optimizer):
     def _compute_backward_factor(self, module, grad_input, grad_output):
         if self.steps % self.fac_update_freq == 0:
             self.m_g[module] = grad_output[0].data
-
-            if not self.exclude_compute_factor:
-                self._update_module_G(module)
-            if not self.exclude_communicate_factor:
-                if hvd.size() > 1:
-                    name = self.module_name_map[module]
-                    if self.eigen_ranks is not None:
-                        ranks_a, ranks_g = self.eigen_ranks[module]
-                        rank_g = ranks_g[0]
-                        self.bw_merged_comm.reduce_async_([name+'G'], [self.m_G[module].data], rank_g)
-
+            self._update_module_G(module)
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
@@ -221,8 +202,8 @@ class KFAC(optim.Optimizer):
             classname = module.__class__.__name__
             if classname in self.known_modules:
                 self.modules.append(module)
-                module.register_forward_pre_hook(self._compute_forward_factor)
-                module.register_backward_hook(self._compute_backward_factor)
+                module.register_forward_pre_hook(self._save_input)
+                module.register_backward_hook(self._save_grad_output)
                 module_name = 'module_name_%s_%d' % (classname, name_idx)
                 self.module_names.append(module_name)
                 self.module_name_map[module] = module_name
@@ -459,15 +440,11 @@ class KFAC(optim.Optimizer):
             if not self.exclude_compute_factor:
                 self._update_A()
                 self._update_G()
-            if self.eigen_ranks is None:
-                self.eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-                if not self.exclude_communicate_factor:
-                    if hvd.size() > 1:
-                        self._reduce_factors(self.eigen_ranks)
-            else:
-                self.fw_merged_comm.synchronize()
-                self.bw_merged_comm.synchronize()
-            eigen_ranks = self.eigen_ranks
+
+            eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
+            if not self.exclude_communicate_factor:
+                if hvd.size() > 1:
+                    self._reduce_factors(eigen_ranks)
 
         # if we are switching from no diag approx to approx, we need to clear
         # off-block-diagonal elements
@@ -618,15 +595,15 @@ class KFAC(optim.Optimizer):
         self.fw_merged_comm.synchronize()
         self.bw_merged_comm.synchronize()
 
-        #for m in self.modules:
-        #    name = self.module_name_map[m]
-        #    ranks_a, ranks_g = eigen_ranks[m]
-        #    rank_a = ranks_a[0]
-        #    rank_g = ranks_g[0]
-        #    if rank_a == hvd.rank():
-        #        self.m_A[m].data.div_(hvd.size())
-        #    if rank_g == hvd.rank():
-        #        self.m_G[m].data.div_(hvd.size())
+        for m in self.modules:
+            name = self.module_name_map[m]
+            ranks_a, ranks_g = eigen_ranks[m]
+            rank_a = ranks_a[0]
+            rank_g = ranks_g[0]
+            if rank_a == hvd.rank():
+                self.m_A[m].data.div_(hvd.size())
+            if rank_g == hvd.rank():
+                self.m_G[m].data.div_(hvd.size())
 
     def _allgather_factors(self):
         """Allgather the factors for all layers"""

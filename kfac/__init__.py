@@ -11,6 +11,7 @@ from kfac.kfac_preconditioner_opt import KFAC as KFAC_EIGEN_OPT
 from kfac.kfac_preconditioner_small_ag import KFAC as KFAC_INV_SMALL_AG
 
 from kfac.kfac_preconditioner_inv_reduce import KFAC as KFAC_INV_REDUCE
+from kfac.kfac_preconditioner_inv_reduce_symmtric import KFAC as KFAC_INV_REDUCE_SYMMTRIC
 from kfac.kfac_preconditioner_inv_reduce_schedule import KFAC as KFAC_INV_REDUCE_SCHEDULE
 
 from kfac.sparse_hessian_preconditioner import SparseHessian 
@@ -33,6 +34,7 @@ kfac_mappers = {
     'minibatch_fisher': MinibatchFisher,
     'sparse_sgd': SparseSGD,
     'inverse_reduce': KFAC_INV_REDUCE,
+    'inverse_reduce_symmtric': KFAC_INV_REDUCE_SYMMTRIC,
     'inverse_reduce_schedule': KFAC_INV_REDUCE_SCHEDULE,
         }
 
