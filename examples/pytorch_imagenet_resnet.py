@@ -391,9 +391,8 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
                     logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
                     iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
                 avg_time = 0.0
-            if batch_idx > 510:
-                break
-        logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
+        if args.verbose:
+            logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
         if hvd.rank() == 0 and wandb:
             wandb.log({"loss": train_loss.avg.item(), "epoch": epoch})
 
@@ -454,8 +453,9 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
-        if not TEST_SPEED:
-            validate(epoch, model, loss_func, val_loader, args)
+        if TEST_SPEED:
+            break
+        validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 
     #if args.verbose:

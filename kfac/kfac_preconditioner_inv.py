@@ -378,7 +378,6 @@ class KFAC(optim.Optimizer):
         Returns:
           preconditioned gradient with same shape as `grad`
         """
-        #v = self.m_QG[module].t() @ grad @ self.m_QA[module]
         v = self.m_QG[module] @ grad @ self.m_QA[module]
 
         if module.bias is not None:
@@ -477,7 +476,7 @@ class KFAC(optim.Optimizer):
 
             eigen_ranks = self._generate_eigen_ranks(epoch)
             #eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
+            eigen_ranks = self._generate_eigen_ranks_naive(epoch)
 
             for module in self.modules:
                 ranks_a, ranks_g = eigen_ranks[module]
