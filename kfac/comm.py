@@ -269,6 +269,7 @@ class MergedCommAllReduce:
         self._name_tensors.clear()
         self.handles.clear()
 
+
 class MergedCommBcast:
     def __init__(self, tensor_names, prefix='flag', fp16=False):
         self._tensor_names = tensor_names
@@ -478,6 +479,68 @@ class MultiTensorReduce:
                     t.copy_(comm_tensor.view(t.shape))
                 t.div_(hvd.size())
                 offset += numel 
+        self.handles.clear()
+
+
+class MergedCommReduce:
+    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False, symmetric=False, fp16=False):
+        self._tensor_names = tensor_names
+        self.merge = merge
+        self.single_layer = single_layer
+        self.symmetric = symmetric
+        self.prefix = prefix
+        self.fp16 = fp16
+        if self.merge:
+            self._tensor_group = TensorGroup(tensor_names, single_layer=False) 
+        else:
+            self._tensor_group = None
+        nstreams = 1
+        self.merged_comm = tcmm.Communicator(hvd.rank(), hvd.size(), nstreams)
+
+        self._name_tensors = {}
+        self.handles = []
+
+    def reduce_async_(self, name, tensor, rank):
+        if self.merge:
+            if self.symmetric:
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+            else:
+                comm_tensor = tensor
+
+            self._name_tensors[name] = (tensor, comm_tensor, rank)
+            new_name, new_tensor = self._tensor_group.push_tensor(name, comm_tensor)
+            if new_tensor is not None:
+                handle = self.merged_comm.reduce(new_tensor, rank)
+                self.handles.append((handle, comm_tensor, tensor, rank))
+        else:
+            if self.symmetric:
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
+                comm_tensor = tensor[upper_indices[0], upper_indices[1]]
+            else:
+                comm_tensor = tensor
+            self._name_tensors[name] = (tensor, comm_tensor, rank)
+            handle = self.merged_comm.reduce(comm_tensor, rank)
+            self.handles.append((handle, comm_tensor, tensor, rank))
+
+    def synchronize(self):
+        self.merged_comm.synchronize()
+        if self.merge:
+            self._tensor_group.pull_alltensors()
+            self._tensor_group.clear_group_flags()
+        for name in self._name_tensors:
+            tensor, comm_tensor, rank = self._name_tensors[name]
+            if rank != hvd.rank():
+                continue
+            if self.symmetric:
+                lower_indices = torch.tril_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
+                upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[1], device=tensor.device)
+                tensor[upper_indices[0], upper_indices[1]] = comm_tensor
+                tensor[lower_indices[0], lower_indices[1]] = tensor.t()[lower_indices[0], lower_indices[1]]
+            else:
+                pass
+            tensor.div_(hvd.size())
+        self._name_tensors.clear()
         self.handles.clear()
 
 

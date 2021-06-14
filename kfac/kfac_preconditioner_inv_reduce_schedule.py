@@ -11,7 +11,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
-from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier, MultiTensorReduce
+from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier, MergedCommReduce 
 import logging
 import tcmm
 import torchsso
@@ -132,9 +132,9 @@ class KFAC(optim.Optimizer):
 
         self.steps = 0
 
-        self.fw_merged_comm = MultiTensorReduce(symmetric=True)
-        self.bw_merged_comm = MultiTensorReduce(symmetric=True)
-        self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
+        self.fw_merged_comm = MergedCommReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommReduce(self.module_names[::-1], prefix='backward', merge=False, single_layer=False, symmetric=False, fp16=False)
+        self.multi_comm = MultiTensorComm(symmetric=False, fp16=False)
 
         # Dictionaries keyed by `module` to storing the factors and
         # eigendecompositions
@@ -187,7 +187,7 @@ class KFAC(optim.Optimizer):
                     if self.eigen_ranks is not None:
                         ranks_a, ranks_g = self.eigen_ranks[module]
                         rank_a = ranks_a[0]
-                        self.fw_merged_comm.reduce_async_([name+'A'], [self.m_A[module].data], rank_a)
+                        self.fw_merged_comm.reduce_async_(name, self.m_A[module].data, rank_a)
 
     def _compute_backward_factor(self, module, grad_input, grad_output):
         if self.steps % self.fac_update_freq == 0:
@@ -201,8 +201,7 @@ class KFAC(optim.Optimizer):
                     if self.eigen_ranks is not None:
                         ranks_a, ranks_g = self.eigen_ranks[module]
                         rank_g = ranks_g[0]
-                        self.bw_merged_comm.reduce_async_([name+'G'], [self.m_G[module].data], rank_g)
-
+                        self.bw_merged_comm.reduce_async_(name, self.m_G[module].data, rank_g)
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
@@ -451,7 +450,8 @@ class KFAC(optim.Optimizer):
                     self._update_A()
                     self._update_G()
                 #self.eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-                self.eigen_ranks = self._generate_eigen_ranks_naive(epoch)
+                #self.eigen_ranks = self._generate_eigen_ranks_naive(epoch)
+                self.eigen_ranks = self._generate_eigen_ranks_match_merging(epoch)
                 if not self.exclude_communicate_factor:
                     if hvd.size() > 1:
                         self._reduce_factors(self.eigen_ranks)
@@ -523,6 +523,24 @@ class KFAC(optim.Optimizer):
         if hvd.rank() == 0:
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
+        return module_ranks
+
+    def _generate_eigen_ranks_match_merging(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        assigned_rank = 0
+        for i, module in enumerate(self.modules):
+            # Get ranks to compute this layer on
+            if i > 0 and i % 3 == 0:
+                assigned_rank += 1
+                assigned_rank %= hvd.size()
+            rank = assigned_rank
+            ranks_a = (rank, ) 
+            ranks_g = (rank, ) 
+            module_ranks[module] = (ranks_a, ranks_g)
+        self.module_ranks = module_ranks
         return module_ranks
 
     def _generate_eigen_ranks_uniform(self, epoch):
@@ -605,9 +623,8 @@ class KFAC(optim.Optimizer):
             rank_a = ranks_a[0]
             rank_g = ranks_g[0]
 
-            self.fw_merged_comm.reduce_async_([name+'A'], [self.m_A[m].data], rank_a)
-            self.bw_merged_comm.reduce_async_([name+'G'], [self.m_G[m].data], rank_g)
-
+            self.fw_merged_comm.reduce_async_(name, self.m_A[m].data, rank_a)
+            self.bw_merged_comm.reduce_async_(name, self.m_G[m].data, rank_g)
         self.fw_merged_comm.synchronize()
         self.bw_merged_comm.synchronize()
 
