@@ -13,6 +13,7 @@ from kfac.kfac_preconditioner_small_ag import KFAC as KFAC_INV_SMALL_AG
 from kfac.kfac_preconditioner_inv_reduce import KFAC as KFAC_INV_REDUCE
 from kfac.kfac_preconditioner_inv_reduce_symmtric import KFAC as KFAC_INV_REDUCE_SYMMTRIC
 from kfac.kfac_preconditioner_inv_reduce_layerwise import KFAC as KFAC_INV_REDUCE_LAYERWISE
+from kfac.kfac_preconditioner_inv_reduce_merge import KFAC as KFAC_INV_REDUCE_MERGE
 from kfac.kfac_preconditioner_inv_reduce_schedule import KFAC as KFAC_INV_REDUCE_SCHEDULE
 
 from kfac.sparse_hessian_preconditioner import SparseHessian 
@@ -37,6 +38,7 @@ kfac_mappers = {
     'inverse_reduce': KFAC_INV_REDUCE,
     'inverse_reduce_symmtric': KFAC_INV_REDUCE_SYMMTRIC,
     'inverse_reduce_layerwise': KFAC_INV_REDUCE_LAYERWISE,
+    'inverse_reduce_merge': KFAC_INV_REDUCE_MERGE,
     'inverse_reduce_schedule': KFAC_INV_REDUCE_SCHEDULE,
         }
 
