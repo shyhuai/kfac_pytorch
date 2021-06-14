@@ -483,25 +483,31 @@ class MultiTensorReduce:
 
 
 class MergedCommReduce:
-    def __init__(self, tensor_names, prefix='flag', merge=False, single_layer=False, symmetric=False, fp16=False):
+    def __init__(self, tensor_names=None, prefix='flag', merge=False, single_layer=False, symmetric=False, fp16=False):
         self._tensor_names = tensor_names
         self.merge = merge
         self.single_layer = single_layer
         self.symmetric = symmetric
         self.prefix = prefix
         self.fp16 = fp16
-        if self.merge:
-            self._tensor_group = TensorGroup(tensor_names, single_layer=False) 
-        else:
-            self._tensor_group = None
+        if tensor_names is not None:
+            self.init_tensor_group(tensor_names)
         nstreams = 1
         self.merged_comm = tcmm.Communicator(hvd.rank(), hvd.size(), nstreams)
 
         self._name_tensors = {}
         self.handles = []
 
+    def init_tensor_group(self, tensor_names):
+        self.tensor_names = tensor_names
+        if self.merge:
+            self._tensor_group = TensorGroup(tensor_names, single_layer=False) 
+        else:
+            self._tensor_group = None
+
     def reduce_async_(self, name, tensor, rank):
         if self.merge:
+            assert self._tensor_group is not None, 'self._tensor_group has not been initialized'
             if self.symmetric:
                 upper_indices = torch.triu_indices(tensor.shape[0], tensor.shape[0], device=tensor.device)
                 comm_tensor = tensor[upper_indices[0], upper_indices[1]]
