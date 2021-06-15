@@ -27,7 +27,7 @@ def add_value_to_diagonal(X, value):
     #values = X.new_ones(X.shape[0]).mul(value)
     #return X.index_put(tuple(indices.t()), values, accumulate=True)
 
-REDUCE_THRESHOLD=128
+REDUCE_THRESHOLD=0
 
 class KFAC(optim.Optimizer):
     """KFAC Distributed Gradient Preconditioner
@@ -135,7 +135,7 @@ class KFAC(optim.Optimizer):
 
         self.steps = 0
 
-        self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
         self.bw_merged_comm = MergedCommReduce(tensor_names=None, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.fw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.bw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
@@ -508,18 +508,29 @@ class KFAC(optim.Optimizer):
                 self.m_dG_ranks[module] = ranks_g[0]
                 rank_a = ranks_a[0]
                 rank_g = ranks_g[0]
+                name = self.module_name_map[module]
 
                 if not self.exclude_compute_inverse:
                     self._update_eigen_A(module, ranks_a)
+
+                if not self.exclude_communicate_inverse:
+                    if hvd.size() > 1 and rank_a >= 0:
+                        self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
+                        
+                if not self.exclude_compute_inverse:
                     self._update_eigen_G(module, ranks_g)
 
-            if not self.exclude_communicate_inverse:
-                if hvd.size() > 1:
-                    self._broadcast_eigendecomp()
-            elif not self.exclude_compute_inverse:
+                if not self.exclude_communicate_inverse:
+                    if hvd.size() > 1 and rank_g >= 0:
+                        self.multi_comm.bcast_async_([name+'mQG'], [self.m_QG[module]], rank_g)
+
+            if self.exclude_communicate_inverse and not self.exclude_compute_inverse:
                 # should have a barriar
                 if hvd.size() > 1:
                     barrier()
+
+        if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
+            self.multi_comm.synchronize()
 
         for i, module in enumerate(self.modules):
             grad = self._get_grad(module)
