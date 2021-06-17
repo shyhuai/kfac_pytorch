@@ -8,6 +8,8 @@ logger = logging.getLogger()
 
 sync_tensor = torch.zeros(1)
 
+NUM_NEARBY_LAYERS=2
+
 class TensorGroup:
     def __init__(self, tensor_names, single_layer, tensors=None):
         self._tensor_names = tensor_names
@@ -35,7 +37,7 @@ class TensorGroup:
             group_indices_by_name[t] = (group_idx, len(current_group))
             current_group.append(t)
             #if i % len(self._tensor_names) == 0 and i > 0:
-            if not self._single_layer and i % 3 == 0 and i > 0:
+            if not self._single_layer and i % NUM_NEARBY_LAYERS == 0 and i > 0:
                 groups.append(current_group)
                 current_group = []
                 group_idx += 1
@@ -96,6 +98,24 @@ class TensorGroup:
         if self._single_layer:
             return
         self._groups, self._group_indices_by_name = self._generate_groups_spd(sizes, times, symmetric, reverse)
+        self.reset_merge()
+        torch.cuda.empty_cache()
+
+    def update_groups_with_configured_groups(self, tensor_group_names):
+        if self._single_layer:
+            return
+        groups = []
+        group_indices_by_name = {}
+        group_idx = 0
+        for i, tensor_list in enumerate(tensor_group_names):
+            group_idx = i
+            current_group = []
+            for t in tensor_list:
+                current_group.append(t)
+                group_indices_by_name[t] = (group_idx, len(tensor_list))
+            groups.append(current_group)
+        self._groups = groups
+        self._group_indices_by_name = group_indices_by_name
         self.reset_merge()
         torch.cuda.empty_cache()
 
@@ -504,6 +524,14 @@ class MergedCommReduce:
             self._tensor_group = TensorGroup(tensor_names, single_layer=False) 
         else:
             self._tensor_group = None
+
+    def update_tensor_fusion(self, tensor_group_names):
+        """
+        tensor_group_names: [['tensor1', 'tensor2'], ['tensor3', 'tensor4'], ...]
+        """
+        if self._tensor_group is None:
+            return
+        self._tensor_group.update_groups_with_configured_groups(tensor_group_names)
 
     def reduce_async_(self, name, tensor, rank):
         if self.merge:

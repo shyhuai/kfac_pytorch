@@ -11,7 +11,7 @@ from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
 from kfac.utils import sparsification
-from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier, MergedCommReduce, NUM_NEARBY_LAYERS
+from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier, MergedCommReduce 
 import logging
 import tcmm
 import torchsso
@@ -522,15 +522,15 @@ class KFAC(optim.Optimizer):
 
                 if not self.exclude_communicate_inverse:
                     if hvd.size() > 1 and rank_a >= 0:
-                        merged_name_As.append(name)
-                        merged_tensor_As.append(self.m_QA[module])
-                        merged_rank_As.append(rank_a)
-                        if i > 0 and i % NUM_NEARBY_LAYERS == 0:
-                            self.multi_comm.bcast_async_(merged_name_As, merged_tensor_As, merged_rank_As[0])
-                            merged_name_As = []
-                            merged_tensor_As = []
-                            merged_rank_As = [] 
-                        #self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
+                        #merged_name_As.append(name)
+                        #merged_tensor_As.append(self.m_QA[module])
+                        #merged_rank_As.append(rank_a)
+                        #if i > 0 and i % 3 == 0:
+                        #    self.multi_comm.bcast_async_(merged_name_As, merged_tensor_As, merged_rank_As[0])
+                        #    merged_name_As = []
+                        #    merged_tensor_As = []
+                        #    merged_rank_As = [] 
+                        self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
                         
                 if not self.exclude_compute_inverse:
                     self._update_eigen_G(module, ranks_g)
@@ -588,7 +588,6 @@ class KFAC(optim.Optimizer):
         diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
         assigned_rank = 0
         assigned_count = 0
-        #print('nfactors: ', len(self.modules))
         for i, module in enumerate(self.modules):
             # Get ranks to compute this layer on
             name = self.module_name_map[module]
@@ -602,7 +601,7 @@ class KFAC(optim.Optimizer):
             ranks_a = (rank, ) 
             ranks_g = (rank, ) 
             module_ranks[module] = (ranks_a, ranks_g)
-            if assigned_count > 0 and assigned_count % NUM_NEARBY_LAYERS== 0:
+            if assigned_count > 0 and assigned_count % 3 == 0:
                 assigned_rank += 1
                 assigned_rank %= hvd.size()
         self.module_ranks = module_ranks
