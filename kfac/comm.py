@@ -8,7 +8,7 @@ logger = logging.getLogger()
 
 sync_tensor = torch.zeros(1)
 
-NUM_NEARBY_LAYERS=2
+NUM_NEARBY_LAYERS=1
 
 class TensorGroup:
     def __init__(self, tensor_names, single_layer, tensors=None):
