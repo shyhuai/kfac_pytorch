@@ -136,7 +136,7 @@ class KFAC(optim.Optimizer):
 
         self.steps = 0
         merge = NUM_NEARBY_LAYERS > 1
-        self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=merge, single_layer=False, symmetric=True, fp16=False)
+        self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
         self.bw_merged_comm = MergedCommReduce(tensor_names=None, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.fw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.bw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
@@ -472,12 +472,17 @@ class KFAC(optim.Optimizer):
                 if not self.exclude_compute_factor:
                     self._update_A()
                     self._update_G()
-                self.eigen_ranks = self._generate_eigen_ranks_blockpartition_opt(epoch)
+                self.eigen_ranks, fusion_groups = self._generate_eigen_ranks_blockpartition_opt(epoch)
                 if not self.exclude_communicate_factor:
                     if hvd.size() > 1:
                         self._reduce_factors(self.eigen_ranks)
                 self.fw_merged_comm.init_tensor_group(self.reduce_module_names)
                 self.bw_merged_comm.init_tensor_group(self.reduce_module_names[::-1])
+                if hvd.rank() == 0:
+                    print('module_names: ', self.module_names)
+                    print('fusion_groups: ', fusion_groups)
+
+                self.fw_merged_comm.update_tensor_fusion(fusion_groups)
             else: # starting from the 2nd iteration
                 if not self.exclude_communicate_factor:
                     if hvd.size() > 1:
@@ -521,7 +526,6 @@ class KFAC(optim.Optimizer):
                 merged_name_AGs[rank_g].append(name+'-G')
                 merged_tensor_AGs[rank_a].append(self.m_QA[module])
                 merged_tensor_AGs[rank_g].append(self.m_QG[module])
-            torch.cuda.synchronize()
 
             if not self.exclude_communicate_inverse:
                 if hvd.size() > 1:
@@ -630,14 +634,6 @@ class KFAC(optim.Optimizer):
             module_factors.append(name+'-G')
             factors.append(m)
 
-        #for i, m in enumerate(self.modules[::-1]):
-        #for i, m in enumerate(self.modules):
-        #    name = self.module_name_map[m]
-        #    g_dimension = self.m_G[m].shape[1]
-        #    dimensions.append(g_dimension)
-        #    module_factors.append(name+'-G')
-        #    factors.append(m)
-            
         placement = get_optimal_block_partition(len(factors), hvd.size(), dimensions)
         A_ranks = {}
         G_ranks = {}
@@ -657,12 +653,27 @@ class KFAC(optim.Optimizer):
             module_ranks[m] = (A_ranks[m], G_ranks[m])
 
         self.module_ranks = module_ranks
+
+        tensor_names_As = []
+        tensor_names_Gs = []
+        c_rank = A_ranks[factors[0]]
+        current_group = []
+        tensor_names_As.append(current_group)
+        for i, name in enumerate(self.module_names):
+            m = factors[i]
+            a_rank = A_ranks[m][0]
+            if a_rank != c_rank:
+                current_group = []
+                tensor_names_As.append(current_group)
+            current_group.append(name)
+            c_rank = a_rank
+
         if hvd.rank() == 0:
             logger.info('placement: %s', placement)
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
             logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
-        return module_ranks
+        return module_ranks, tensor_names_As
 
 
     def _generate_eigen_ranks_uniform(self, epoch):

@@ -108,12 +108,12 @@ class TensorGroup:
         group_indices_by_name = {}
         group_idx = 0
         for i, tensor_list in enumerate(tensor_group_names):
-            group_idx = i
             current_group = []
             for t in tensor_list:
+                group_indices_by_name[t] = (group_idx, len(current_group))
                 current_group.append(t)
-                group_indices_by_name[t] = (group_idx, len(tensor_list))
             groups.append(current_group)
+            group_idx += 1
         self._groups = groups
         self._group_indices_by_name = group_indices_by_name
         self.reset_merge()
