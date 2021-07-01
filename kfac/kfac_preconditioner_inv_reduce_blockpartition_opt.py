@@ -624,12 +624,19 @@ class KFAC(optim.Optimizer):
             dimensions.append(a_dimension)
             module_factors.append(name+'-A')
             factors.append(m)
-        for i, m in enumerate(self.modules[::-1]):
-            name = self.module_name_map[m]
+
             g_dimension = self.m_G[m].shape[1]
             dimensions.append(g_dimension)
             module_factors.append(name+'-G')
             factors.append(m)
+
+        #for i, m in enumerate(self.modules[::-1]):
+        #for i, m in enumerate(self.modules):
+        #    name = self.module_name_map[m]
+        #    g_dimension = self.m_G[m].shape[1]
+        #    dimensions.append(g_dimension)
+        #    module_factors.append(name+'-G')
+        #    factors.append(m)
             
         placement = get_optimal_block_partition(len(factors), hvd.size(), dimensions)
         A_ranks = {}
