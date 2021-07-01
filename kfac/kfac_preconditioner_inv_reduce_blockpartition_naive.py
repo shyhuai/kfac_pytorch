@@ -139,7 +139,7 @@ class KFAC(optim.Optimizer):
         self.bw_merged_comm = MergedCommReduce(tensor_names=None, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.fw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.bw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
-        self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
+        self.multi_comm = MultiTensorComm(symmetric=False, fp16=False)
 
         # Dictionaries keyed by `module` to storing the factors and
         # eigendecompositions
@@ -471,9 +471,10 @@ class KFAC(optim.Optimizer):
                 if not self.exclude_compute_factor:
                     self._update_A()
                     self._update_G()
+                self.eigen_ranks = self._generate_eigen_ranks_blockpartition_naive(epoch)
                 #self.eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
                 #self.eigen_ranks = self._generate_eigen_ranks_naive(epoch)
-                self.eigen_ranks = self._generate_eigen_ranks_match_merging(epoch)
+                #self.eigen_ranks = self._generate_eigen_ranks_match_merging(epoch)
                 if not self.exclude_communicate_factor:
                     if hvd.size() > 1:
                         self._reduce_factors(self.eigen_ranks)
@@ -617,6 +618,51 @@ class KFAC(optim.Optimizer):
             logger.info('BIs: %s', BIs)
 
         return module_ranks
+
+    def _generate_eigen_ranks_blockpartition_naive(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        target_ranks = np.arange(hvd.size())
+
+        buckets = [0] * hvd.size()
+        dimensions = []
+        module_factors = []
+        for i, m in enumerate(self.modules):
+            name = self.module_names[i]
+            a_dimension = self.m_A[m].shape[1]
+            #g_dimension = self.m_G[m].shape[1]
+            dimensions.append(a_dimension)
+            module_factors.append(name+'-A')
+            #dimensions.append(g_dimension)
+            module_factors.append(name+'-G')
+        blocks = np.array_split(module_factors, hvd.size())
+        A_ranks = {}
+        G_ranks = {}
+        buckets = [0] * hvd.size()
+        for i, b in enumerate(blocks):
+            for factor in b:
+                m_i = self.module_names.index(factor[0:-2])
+                m = self.modules[m_i]
+                if factor[-1] == 'A':
+                    A_ranks[m] = (i,)
+                    dimension = self.m_A[m].shape[1]
+                else:
+                    G_ranks[m] = (i,)
+                    dimension = self.m_G[m].shape[1]
+                buckets[i] += dimension
+
+        for m in self.modules:
+            module_ranks[m] = (A_ranks[m], G_ranks[m])
+
+        self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('buckets: %s', buckets)
+            logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
+        return module_ranks
+
 
     def _generate_eigen_ranks_uniform(self, epoch):
         if self.module_ranks is not None:

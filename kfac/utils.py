@@ -1,9 +1,12 @@
+from __future__ import print_function
 import itertools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import tcmm
 import random
+import math
+import numpy as np
 
 TENSOR_CORE=False
 TENSOR_CORE_THRES=1024 #2048*1024
@@ -389,3 +392,84 @@ def estimate_inverse_time(dimension, dnn='resnet'):
                     t = float(items[1][:-1])
                     inverse_times[size] = t
     return inverse_times[dimension]
+
+def estimate_inverse_time_with_model(dimension):
+    alpha = 3.64e-3
+    beta = 4.77e-4
+    return alpha * math.exp(beta * d) 
+
+def get_per_worker_load(N, P, weights, placement):
+    load = np.zeros(P)
+    for i in range(N):
+        root = placement[i]
+        load[root] += weights[i]
+    return load
+
+def get_optimal_block_partition(N, P, weights):
+    """
+    input: 
+        #tasks (N), #workers (P), weights of tasks
+    output: 
+        placement: task assignment results, i.e., a list of worker IDs
+    """
+    if N <= P:
+        return np.arange(N)
+
+    # compute the optimal bottleneck by dynamic programming
+    # , where B[i, j] is the optimal bottleneck given the first (j+1) tasks and (i+1) workers
+
+    W = np.cumsum(weights)
+    B = np.zeros((P, N)) 
+    B[0, :] = W
+
+    # # original version
+    # for p in range(1, P): 
+    #     for i in range(p, N - P + p + 1):
+    #         B[p, i] = min([max(B[p-1, j], W[i] - W[j]) for j in range(p-1,i)])
+
+    # improved version
+    for p in range(1, P):
+        j = p - 1
+        for i in range(p, N - P + p + 1):
+            if W[i] - W[j] > B[p-1, j]:
+                while W[i] - W[j] > B[p-1, j]:
+                    j += 1
+                if j == i or W[i] - W[j-1] < B[p-1, j]: # Important: deal with the special case of j == i
+                    j = j - 1
+                    B[p, i] = W[i] - W[j]
+                else:
+                    B[p, i] = B[p-1, j]
+            else:
+                B[p, i] = B[p-1, j]
+            j = p - 1
+
+    bottleneck = B[P-1, N-1]
+    # print(bottleneck)
+
+    # continuous placement until the bottleneck is reached
+    placement = np.zeros(N, dtype=int)
+    root = 0
+    load = 0
+    for i in range(N):
+        if load + weights[i] <= bottleneck + 1e-06: 
+            placement[i] = root
+            load += weights[i]
+        else:
+            root += 1
+            placement[i] = root
+            load = weights[i]
+
+    assert root < P
+
+    # fill in the empty workers or not ?
+    if root < P - 1:
+        for i in range(1, N-1):
+            if placement[i-1] == placement[i] and placement[i-1] != placement[i+1]:
+                root += 1
+                placement[i] = root
+                if root == P-1:
+                    break
+
+    return placement
+
+

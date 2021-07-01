@@ -471,9 +471,10 @@ class KFAC(optim.Optimizer):
                 if not self.exclude_compute_factor:
                     self._update_A()
                     self._update_G()
+                self.eigen_ranks = self._generate_eigen_ranks_blockpartition_naive(epoch)
                 #self.eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
                 #self.eigen_ranks = self._generate_eigen_ranks_naive(epoch)
-                self.eigen_ranks = self._generate_eigen_ranks_match_merging(epoch)
+                #self.eigen_ranks = self._generate_eigen_ranks_match_merging(epoch)
                 if not self.exclude_communicate_factor:
                     if hvd.size() > 1:
                         self._reduce_factors(self.eigen_ranks)
@@ -502,13 +503,8 @@ class KFAC(optim.Optimizer):
             self.rank_iter.reset() 
             handles = []
 
-            merged_name_As = []
-            merged_tensor_As = []
-            merged_rank_As = [] 
-            merged_name_Gs = []
-            merged_tensor_Gs = []
-            merged_rank_Gs = [] 
-            g_rank_a = 0
+            merged_name_AGs = [[]]*hvd.size()
+            merged_tensor_AGs = [[]]*hvd.size()
             for i, module in enumerate(self.modules):
                 ranks_a, ranks_g = eigen_ranks[module]
                 self.m_dA_ranks[module] = ranks_a[0]
@@ -520,27 +516,21 @@ class KFAC(optim.Optimizer):
                 if not self.exclude_compute_inverse:
                     self._update_eigen_A(module, ranks_a)
 
-                if not self.exclude_communicate_inverse:
-                    if hvd.size() > 1 and rank_a >= 0:
-                        merged_name_As.append(name)
-                        merged_tensor_As.append(self.m_QA[module])
-                        merged_rank_As.append(rank_a)
-                        if i > 0 and i % NUM_NEARBY_LAYERS == 0:
-                            self.multi_comm.bcast_async_(merged_name_As, merged_tensor_As, merged_rank_As[0])
-                            merged_name_As = []
-                            merged_tensor_As = []
-                            merged_rank_As = [] 
-                        #self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
-                        
                 if not self.exclude_compute_inverse:
                     self._update_eigen_G(module, ranks_g)
 
-                if not self.exclude_communicate_inverse:
-                    if hvd.size() > 1 and rank_g >= 0:
-                        self.multi_comm.bcast_async_([name+'mQG'], [self.m_QG[module]], rank_g)
+                merged_name_AGs[rank_a].append(name+'-A')
+                merged_name_AGs[rank_g].append(name+'-G')
+                merged_tensor_AGs[rank_a].append(self.m_QA[module])
+                merged_tensor_AGs[rank_g].append(self.m_QG[module])
+
             if not self.exclude_communicate_inverse:
-                if hvd.size() > 1 and len(merged_name_As) > 0:
-                    self.multi_comm.bcast_async_(merged_name_As, merged_tensor_As, merged_rank_As[0])
+                if hvd.size() > 1:
+                    #for rank, names in enumerate(merged_name_AGs):
+                    #    merged_names = merged_name_AGs[rank]
+                    #    merged_tensors = merged_tensor_AGs[rank]
+                    #    self.multi_comm.bcast_async_(merged_names, merged_tensors, rank)
+                    self._broadcast_eigendecomp()
 
             if self.exclude_communicate_inverse and not self.exclude_compute_inverse:
                 # should have a barriar
@@ -617,6 +607,49 @@ class KFAC(optim.Optimizer):
             logger.info('BIs: %s', BIs)
 
         return module_ranks
+
+    def _generate_eigen_ranks_blockpartition_naive(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        target_ranks = np.arange(hvd.size())
+
+        buckets = [0] * hvd.size()
+        dimensions = []
+        module_factors = []
+        for i, m in enumerate(self.modules):
+            name = self.module_names[i]
+            a_dimension = self.m_A[m].shape[1]
+            dimensions.append(a_dimension)
+            module_factors.append(name+'-A')
+            module_factors.append(name+'-G')
+        blocks = np.array_split(module_factors, hvd.size())
+        A_ranks = {}
+        G_ranks = {}
+        buckets = [0] * hvd.size()
+        for i, b in enumerate(blocks):
+            for factor in b:
+                m_i = self.module_names.index(factor[0:-2])
+                m = self.modules[m_i]
+                if factor[-1] == 'A':
+                    A_ranks[m] = (i,)
+                    dimension = self.m_A[m].shape[1]
+                else:
+                    G_ranks[m] = (i,)
+                    dimension = self.m_G[m].shape[1]
+                buckets[i] += dimension
+
+        for m in self.modules:
+            module_ranks[m] = (A_ranks[m], G_ranks[m])
+
+        self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('buckets: %s', buckets)
+            logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
+        return module_ranks
+
 
     def _generate_eigen_ranks_uniform(self, epoch):
         if self.module_ranks is not None:
