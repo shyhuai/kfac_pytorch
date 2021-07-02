@@ -113,7 +113,7 @@ class TensorGroup:
             current_gen_groups, current_gen_group_indices_by_name = self._generate_groups_spd(group, current_group_sizes, current_times, symmetric, reverse, idx)
             groups = groups+current_gen_groups
             group_indices_by_name.update(current_gen_group_indices_by_name)
-            idx += len(group)
+            idx += len(current_gen_groups)
         self._groups, self._group_indices_by_name = groups, group_indices_by_name
         self.reset_merge()
         torch.cuda.empty_cache()
