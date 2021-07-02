@@ -18,6 +18,7 @@ from kfac.kfac_preconditioner_inv_reduce_lwinverse import KFAC as KFAC_INV_REDUC
 from kfac.kfac_preconditioner_inv_reduce_blockpartition_naive import KFAC as KFAC_INV_REDUCE_BLOCKPARTITION_NAIVE
 from kfac.kfac_preconditioner_inv_reduce_blockpartition_bcastmerge import KFAC as KFAC_INV_REDUCE_BLOCKPARTITION_BCASTMERGE
 from kfac.kfac_preconditioner_inv_reduce_blockpartition_opt import KFAC as KFAC_INV_REDUCE_BLOCKPARTITION_OPT
+from kfac.kfac_preconditioner_inv_reduce_blockpartition_opt_mgwfbp import KFAC as KFAC_INV_REDUCE_BLOCKPARTITION_OPT_MGWFBP
 from kfac.kfac_preconditioner_inv_reduce_schedule import KFAC as KFAC_INV_REDUCE_SCHEDULE
 
 from kfac.sparse_hessian_preconditioner import SparseHessian 
@@ -47,6 +48,7 @@ kfac_mappers = {
     'inverse_reduce_blockpartition_naive': KFAC_INV_REDUCE_BLOCKPARTITION_NAIVE,
     'inverse_reduce_blockpartition_bcastmerge': KFAC_INV_REDUCE_BLOCKPARTITION_BCASTMERGE,
     'inverse_reduce_blockpartition_opt': KFAC_INV_REDUCE_BLOCKPARTITION_OPT,
+    'inverse_reduce_blockpartition_opt_mgwfbp': KFAC_INV_REDUCE_BLOCKPARTITION_OPT_MGWFBP,
     'inverse_reduce_schedule': KFAC_INV_REDUCE_SCHEDULE,
         }
 

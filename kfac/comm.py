@@ -97,7 +97,24 @@ class TensorGroup:
     def update_groups(self, sizes, times, symmetric=False, reverse=False):
         if self._single_layer:
             return
-        self._groups, self._group_indices_by_name = self._generate_groups_spd(sizes, times, symmetric, reverse)
+        self._groups, self._group_indices_by_name = self._generate_groups_spd(self._tensor_names, sizes, times, symmetric, reverse)
+        self.reset_merge()
+        torch.cuda.empty_cache()
+
+    def update_reduce_groups(self, tensor_group_names, sizes, times, symmetric=False, reverse=False):
+        if self._single_layer:
+            return
+        idx = 0
+        groups = []
+        group_indices_by_name = {}
+        for group in tensor_group_names:
+            current_group_sizes = sizes[idx:idx+len(group)]
+            current_times = times[idx:idx+len(group)]
+            current_gen_groups, current_gen_group_indices_by_name = self._generate_groups_spd(group, current_group_sizes, current_times, symmetric, reverse, idx)
+            groups = groups+current_gen_groups
+            group_indices_by_name.update(current_gen_group_indices_by_name)
+            idx += len(group)
+        self._groups, self._group_indices_by_name = groups, group_indices_by_name
         self.reset_merge()
         torch.cuda.empty_cache()
 
@@ -119,7 +136,7 @@ class TensorGroup:
         self.reset_merge()
         torch.cuda.empty_cache()
 
-    def _generate_groups_spd(self, sizes, times, symmetric, reverse=False):
+    def _generate_groups_spd(self, tensor_names, sizes, times, symmetric, reverse=False, start_idx=0):
         num_of_workers = hvd.size()
         def __calculate_comm_start(tc, tb, taob, L):
             taoc = [0] * L 
@@ -134,9 +151,9 @@ class TensorGroup:
             p[l] = 0
             tc[l+1] = estimate_allreduce_time(p[l+1], num_of_workers)
         if reverse:
-            seq_layernames = self._tensor_names[::-1]
+            seq_layernames = tensor_names[::-1]
         else:
-            seq_layernames = self._tensor_names
+            seq_layernames = tensor_names
         p = sizes[:]
 
         if symmetric:
@@ -154,7 +171,7 @@ class TensorGroup:
         taoc = __calculate_comm_start(tc, tb, taob, L)
         groups = []
         group = []
-        idx = 0
+        idx = start_idx
         key_groupidx_maps = {}
         l = 0
         key = seq_layernames[l] 
@@ -510,6 +527,7 @@ class MergedCommReduce:
         self.symmetric = symmetric
         self.prefix = prefix
         self.fp16 = fp16
+        self.tensor_group_names = None
         if tensor_names is not None:
             self.init_tensor_group(tensor_names)
         nstreams = 1
@@ -532,6 +550,12 @@ class MergedCommReduce:
         if self._tensor_group is None:
             return
         self._tensor_group.update_groups_with_configured_groups(tensor_group_names)
+        self.tensor_group_names = tensor_group_names
+
+    def update_groups(self, tensor_group_names, sizes, times, reverse=False):
+        if self.merge and self._tensor_group:
+            self._tensor_group.update_reduce_groups(tensor_group_names, sizes, times, self.symmetric, reverse=reverse)
+            self.merge = self._tensor_group.is_merged()
 
     def reduce_async_(self, name, tensor, rank):
         if self.merge:
