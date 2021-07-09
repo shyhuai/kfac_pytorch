@@ -133,7 +133,7 @@ def plot_breakdown_spdkfac():
     dnns = ['resnet50', 'resnet152', 'densenet201', 'inceptionv4']
     #algos = ['dkfac', 'dkfac-mp', 'spd-kfac']
     algos = ['dkfac', 'mpd-kfac', 'spd-kfac']
-    labels=['D-K.', 'MPD-K.', 'SPD-K.']
+    labels=['D-KFAC', 'MPD-KFAC', 'SPD-KFAC']
     data = {'resnet50':  # [compute, communicate gradient, compute factor, communicate factor, compute inverse, communicate inverse]
                     {
                      'dkfac':    [0.132, 0.1968, 0.4083, 0.5783, 0.8525, 0.8525],
@@ -189,7 +189,7 @@ def plot_breakdown_spdkfac():
         s += 1 
         #ax.text(4, 4, 'ehhlo', color='b')
         utils.autolabel(p, ax, labels[ia], 90, FONTSIZE-2)
-    ax.set_ylim(top=ax.get_ylim()[1]*1.15)
+    ax.set_ylim(top=ax.get_ylim()[1]*1.3)
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(legend_p, names, ncol=3, handletextpad=0.2, columnspacing =1., loc='upper center', fontsize=FONTSIZE, bbox_to_anchor=[0.5, 1.2])
     ax.set_ylabel('Time [s]')
