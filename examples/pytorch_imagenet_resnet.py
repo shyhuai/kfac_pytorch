@@ -39,8 +39,10 @@ import wandb
 
 os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '1' 
 os.environ['HOROVOD_FUSION_THRESHOLD'] = '0'
-#os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '2' 
-#os.environ['HOROVOD_CYCLE_TIME'] = '0'
+os.environ['HOROVOD_CYCLE_TIME'] = '0'
+
+RDMA=os.environ.get('RDMA') 
+
 TEST_SPEED = True
 if TEST_SPEED: 
     wandb = False
@@ -181,7 +183,9 @@ def initialize():
     #logfilename = 'convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
     logfilename = 'ic2021_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
     if TEST_SPEED:
-        logfilename = 'SPEED_'+logfilename
+        logfilename = 'SPEED_V2_'+logfilename
+        logfilename = 'RDMA%d_'%int(RDMA)+logfilename
+        #logfilename = 'DEBUG_'+logfilename
 
     if hvd.rank() == 0 and wandb:
         wandb.init(project='kfac', entity='hkust-distributedml', name=logfilename, config=args)
@@ -391,6 +395,8 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
                     logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
                     iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
                 avg_time = 0.0
+            if TEST_SPEED and batch_idx > 120:
+                break
         if args.verbose:
             logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
         if hvd.rank() == 0 and wandb:

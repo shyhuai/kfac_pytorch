@@ -135,7 +135,7 @@ class KFAC(optim.Optimizer):
 
         self.steps = 0
 
-        self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
+        self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.bw_merged_comm = MergedCommReduce(tensor_names=None, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.fw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.bw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
@@ -522,14 +522,6 @@ class KFAC(optim.Optimizer):
 
                 if not self.exclude_communicate_inverse:
                     if hvd.size() > 1 and rank_a >= 0:
-                        #merged_name_As.append(name)
-                        #merged_tensor_As.append(self.m_QA[module])
-                        #merged_rank_As.append(rank_a)
-                        #if i > 0 and i % 3 == 0:
-                        #    self.multi_comm.bcast_async_(merged_name_As, merged_tensor_As, merged_rank_As[0])
-                        #    merged_name_As = []
-                        #    merged_tensor_As = []
-                        #    merged_rank_As = [] 
                         self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
                         
                 if not self.exclude_compute_inverse:
