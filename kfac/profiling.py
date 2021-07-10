@@ -7,7 +7,7 @@ import time
 import numpy as np
 import torch.nn as nn
 from torch.autograd import Variable
-import models.lstm as lstmpy
+#import models.lstm as lstmpy
 
 
 class Profiling(object):
