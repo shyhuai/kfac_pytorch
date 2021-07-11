@@ -159,7 +159,7 @@ class CommunicationProfiler(object):
         self.sync_op = sync_op
         self.sizes = sizes
 
-    def benchmark(self, num_iters=100):
+    def benchmark(self, rank=0, num_iters=100):
         if self.sizes is None:
             small_sizes = [8*1024*i for i in range(1, 64)] # 1K to 1M
             large_sizes = [] #[1024*1024*i for i in range(8)] # 1M to 512M
@@ -172,9 +172,11 @@ class CommunicationProfiler(object):
         stime = time.time()
         for i in range(warmup):
             name = 'warmup-%d' % i
-            h = self.comm_op(tensor, root_rank=0, name=name)
+            h = self.comm_op(tensor, rank)
+            #h = self.comm_op(tensor, rank, name=name)
             #h = self.comm_op(tensor, average=True, name=name)
-            self.sync_op(h)
+            #self.sync_op(h)
+            self.sync_op()
         etime = time.time()
         elapsed_times = []
         for s in sizes:
@@ -183,9 +185,11 @@ class CommunicationProfiler(object):
             stime = time.time()
             for i in range(num_iters):
                 name = 'run-size%d-%d'% (s, i)
+                h = self.comm_op(tensor, rank)
                 #h = self.comm_op(tensor, average=True, name=name)
-                h = self.comm_op(tensor, root_rank=0, name=name)
-                self.sync_op(h)
+                #h = self.comm_op(tensor, root_rank=0, name=name)
+                #self.sync_op(h)
+                self.sync_op()
             etime = time.time()
             elapsed_times.append((etime-stime)/num_iters)
         return sizes, elapsed_times

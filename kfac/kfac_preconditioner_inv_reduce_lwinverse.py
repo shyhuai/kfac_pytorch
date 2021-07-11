@@ -193,7 +193,7 @@ class KFAC(optim.Optimizer):
                         ranks_a, ranks_g = self.eigen_ranks[module]
                         rank_a = ranks_a[0]
                         if self.m_A[module].shape[1] > REDUCE_THRESHOLD:
-                            self.fw_merged_comm.reduce_async_(name, self.m_A[module].data, rank_a)
+                            self.fw_merged_comm.reduce_async_(name+'_A', self.m_A[module].data, rank_a)
                         else:
                             self.fw_allreduce_comm.allreduce_async_(name, self.m_A[module].data)
 
@@ -210,7 +210,7 @@ class KFAC(optim.Optimizer):
                         ranks_a, ranks_g = self.eigen_ranks[module]
                         rank_g = ranks_g[0]
                         if self.m_A[module].shape[1] > REDUCE_THRESHOLD:
-                            self.bw_merged_comm.reduce_async_(name, self.m_G[module].data, rank_g)
+                            self.bw_merged_comm.reduce_async_(name+'_G', self.m_G[module].data, rank_g)
                         else:
                             self.bw_allreduce_comm.allreduce_async_(name, self.m_G[module].data)
                             #self.bw_allreduce_handlers.append(hvd.allreduce_async_(self.m_G[module].data, op=hvd.Average))
@@ -580,6 +580,8 @@ class KFAC(optim.Optimizer):
         diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
         assigned_rank = 0
         assigned_count = 0
+        continous_num = len(self.modules) // hvd.size()
+        continous_num = max(continous_num, 1)
         for i, module in enumerate(self.modules):
             # Get ranks to compute this layer on
             name = self.module_name_map[module]
@@ -593,10 +595,12 @@ class KFAC(optim.Optimizer):
             ranks_a = (rank, ) 
             ranks_g = (rank, ) 
             module_ranks[module] = (ranks_a, ranks_g)
-            if assigned_count > 0 and assigned_count % 3 == 0:
+            if assigned_count > 0 and assigned_count % continous_num == 0:
                 assigned_rank += 1
                 assigned_rank %= hvd.size()
         self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('module_ranks: %s', module_ranks.values())
         return module_ranks
 
     def _generate_eigen_ranks_uniform(self, epoch):

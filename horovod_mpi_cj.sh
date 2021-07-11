@@ -37,6 +37,7 @@ params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
     -x NCCL_IB_DISABLE=0 \
     -x NCCL_SOCKET_IFNAME=ib0 \
     -x NCCL_DEBUG=VERSION \
+    -x NCCL_BUFFSIZE=262144 \
     -x HOROVOD_CACHE_CAPACITY=0"
 fi
     #-x HOROVOD_FUSION_THRESHOLD=0 \
