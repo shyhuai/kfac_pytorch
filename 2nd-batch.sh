@@ -1,3 +1,9 @@
-#kfac_name=inverse_opt ./batch.sh
-#kfac_name=inverse_naive ./batch.sh
-#kfac_name=inverse_naive_nopar ./batch.sh
+#nworkers=64 kfac_name=inverse_reduce_layerwise ./batch.sh
+#nworkers=64 kfac_name=inverse_opt ./batch.sh
+
+rdma=0 nworkers=64 kfac_name=inverse_mpd ./batch.sh
+rdma=0 nworkers=64 kfac_name=inverse_opt ./batch.sh
+rdma=0 nworkers=64 kfac_name=inverse_reduce_layerwise ./batch.sh
+rdma=0 nworkers=64 kfac_name=inverse_reduce_blockpartition_naive ./batch.sh
+rdma=0 nworkers=64 kfac_name=inverse_reduce_blockpartition_opt ./batch.sh
+rdma=0 nworkers=64 kfac_name=inverse_reduce_blockpartition_opt_mgwfbp ./batch.sh

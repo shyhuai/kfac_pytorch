@@ -132,7 +132,7 @@ class KFAC(optim.Optimizer):
         self._register_modules(model)
 
         self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names[::-1], prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names[::-1], prefix='backward', merge=True, single_layer=False, symmetric=True, fp16=False)
         self.inverseA_merged_comm = MergedCommBcast(self.module_names, prefix='inverseA')
         self.inverseG_merged_comm = MergedCommBcast(self.module_names, prefix='inverseG')
         self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
@@ -514,6 +514,7 @@ class KFAC(optim.Optimizer):
                 self.steps % self.kfac_update_freq == 0:
             self._clear_eigen()
             self.have_cleared_Q = True
+        torch.cuda.synchronize()
 
         if self.steps % self.kfac_update_freq == 0:
             # reset rank iter so device get the same layers
@@ -522,8 +523,8 @@ class KFAC(optim.Optimizer):
             handles = []
 
             #eigen_ranks = self._generate_eigen_ranks(epoch)
-            eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
+            #eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
+            eigen_ranks = self._generate_eigen_ranks_naive(epoch)
             #inverse_As = []
             #A_ranks = []
             #inverse_Gs = []

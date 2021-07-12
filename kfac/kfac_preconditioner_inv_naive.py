@@ -132,9 +132,9 @@ class KFAC(optim.Optimizer):
 
         self.steps = 0
 
-        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=False, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=False, fp16=False)
-        self.multi_comm = MultiTensorComm(symmetric=False, fp16=False)
+        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
 
         # Dictionaries keyed by `module` to storing the factors and
         # eigendecompositions
@@ -479,8 +479,8 @@ class KFAC(optim.Optimizer):
             handles = []
 
             #eigen_ranks = self._generate_eigen_ranks(epoch)
-            eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
+            #eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
+            eigen_ranks = self._generate_eigen_ranks_naive(epoch)
 
             for module in self.modules:
                 ranks_a, ranks_g = eigen_ranks[module]
@@ -516,6 +516,7 @@ class KFAC(optim.Optimizer):
         module_ranks = {}
         diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
         buckets = [0] * hvd.size()
+        ranks = []
         for module in self.modules:
             # Get ranks to compute this layer on
             n = self._get_diag_blocks(module, diag_blocks)
@@ -523,12 +524,14 @@ class KFAC(optim.Optimizer):
             ranks_g = self.rank_iter.next(n) if self.distribute_layer_factors \
                                              else ranks_a
             module_ranks[module] = (ranks_a, ranks_g)
+            ranks.append(ranks_a[0])
             buckets[ranks_a[0]] += self.m_A[module].shape[1]
             buckets[ranks_g[0]] += self.m_G[module].shape[1]
         self.module_ranks = module_ranks
         if hvd.rank() == 0:
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('ranks: %s', ranks)
         return module_ranks
 
     def _generate_eigen_ranks_uniform(self, epoch):
@@ -564,13 +567,16 @@ class KFAC(optim.Optimizer):
                 G_ranks[m] = (bi,)
             else:
                 G_ranks[m] = (bi,)
+        ranks = []
         for m in self.modules:
             module_ranks[m] = (A_ranks[m], G_ranks[m])
+            ranks.append(A_ranks[m][0])
 
         self.module_ranks = module_ranks
         if hvd.rank() == 0:
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('ranks: %s', ranks)
         return module_ranks
 
     def _generate_eigen_ranks(self, epoch):

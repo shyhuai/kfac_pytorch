@@ -14,7 +14,7 @@ PYTORCH_LIBRARIES := $(shell python -c 'from torch.utils.cpp_extension import li
 # CUDA ROOT DIR that contains bin/ lib64/ and include/
 # CUDA_DIR := /usr/local/cuda
 CUDA_DIR := $(shell python -c 'from torch.utils.cpp_extension import _find_cuda_home; print(_find_cuda_home())')
-NCCL_DIR ?= /home/esetstore/downloads/nccl_2.4.7-1+cuda10.1_x86_64
+NCCL_DIR ?= /home/esetstore/downloads/nccl_2.6.4-1+cuda10.1_x86_64
 MPI_DIR ?= /home/esetstore/.local/openmpi-4.0.1
 
 # Assume pytorch > v1.1

@@ -579,6 +579,7 @@ class MergedCommReduce:
                 comm_tensor = tensor
             self._name_tensors[name] = (tensor, comm_tensor, rank)
             handle = self.merged_comm.reduce(comm_tensor, rank)
+            #handle = self.merged_comm.allReduce(comm_tensor)
             self.handles.append((handle, comm_tensor, tensor, rank))
 
     def synchronize(self):

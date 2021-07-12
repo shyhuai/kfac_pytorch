@@ -136,7 +136,7 @@ class KFAC(optim.Optimizer):
         self.steps = 0
 
         self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
-        self.bw_merged_comm = MergedCommReduce(tensor_names=None, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommReduce(tensor_names=None, prefix='backward', merge=True, single_layer=False, symmetric=True, fp16=False)
         self.fw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.bw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
@@ -193,7 +193,7 @@ class KFAC(optim.Optimizer):
                         ranks_a, ranks_g = self.eigen_ranks[module]
                         rank_a = ranks_a[0]
                         if self.m_A[module].shape[1] > REDUCE_THRESHOLD:
-                            self.fw_merged_comm.reduce_async_(name, self.m_A[module].data, rank_a)
+                            self.fw_merged_comm.reduce_async_(name+'_A', self.m_A[module].data, rank_a)
                         else:
                             self.fw_allreduce_comm.allreduce_async_(name, self.m_A[module].data)
 
@@ -210,7 +210,7 @@ class KFAC(optim.Optimizer):
                         ranks_a, ranks_g = self.eigen_ranks[module]
                         rank_g = ranks_g[0]
                         if self.m_A[module].shape[1] > REDUCE_THRESHOLD:
-                            self.bw_merged_comm.reduce_async_(name, self.m_G[module].data, rank_g)
+                            self.bw_merged_comm.reduce_async_(name+'_G', self.m_G[module].data, rank_g)
                         else:
                             self.bw_allreduce_comm.allreduce_async_(name, self.m_G[module].data)
                             #self.bw_allreduce_handlers.append(hvd.allreduce_async_(self.m_G[module].data, op=hvd.Average))
@@ -522,14 +522,6 @@ class KFAC(optim.Optimizer):
 
                 if not self.exclude_communicate_inverse:
                     if hvd.size() > 1 and rank_a >= 0:
-                        #merged_name_As.append(name)
-                        #merged_tensor_As.append(self.m_QA[module])
-                        #merged_rank_As.append(rank_a)
-                        #if i > 0 and i % 3 == 0:
-                        #    self.multi_comm.bcast_async_(merged_name_As, merged_tensor_As, merged_rank_As[0])
-                        #    merged_name_As = []
-                        #    merged_tensor_As = []
-                        #    merged_rank_As = [] 
                         self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[module]], rank_a)
                         
                 if not self.exclude_compute_inverse:
@@ -588,6 +580,8 @@ class KFAC(optim.Optimizer):
         diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
         assigned_rank = 0
         assigned_count = 0
+        continous_num = len(self.modules) // hvd.size()
+        continous_num = max(continous_num, 1)
         for i, module in enumerate(self.modules):
             # Get ranks to compute this layer on
             name = self.module_name_map[module]
@@ -601,10 +595,12 @@ class KFAC(optim.Optimizer):
             ranks_a = (rank, ) 
             ranks_g = (rank, ) 
             module_ranks[module] = (ranks_a, ranks_g)
-            if assigned_count > 0 and assigned_count % 3 == 0:
+            if assigned_count > 0 and assigned_count % continous_num == 0:
                 assigned_rank += 1
                 assigned_rank %= hvd.size()
         self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('module_ranks: %s', module_ranks.values())
         return module_ranks
 
     def _generate_eigen_ranks_uniform(self, epoch):
