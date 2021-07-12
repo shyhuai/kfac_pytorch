@@ -25,6 +25,7 @@ params="-mca pml ob1 -mca btl ^openib \
     -x NCCL_DEBUG=VERSION  \
     -x NCCL_SOCKET_IFNAME=enp136s0f0,enp137s0f0 \
     -x NCCL_IB_DISABLE=1 \
+    -x NCCL_BUFFSIZE=262144 \
     -x HOROVOD_CACHE_CAPACITY=0 \
     -x CUDA_VISIBLE_DEVICES=${gpuids}"
 else

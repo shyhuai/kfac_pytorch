@@ -627,8 +627,8 @@ class KFAC(optim.Optimizer):
             #    logger.info('G Name: %s, shape: %s', m, self.m_G[m].shape)
             dimensions.append(a_dimension)
             module_factors.append(name+'-A')
-            dimensions.append(g_dimension)
-            module_factors.append(name+'-G')
+            #dimensions.append(g_dimension)
+            #module_factors.append(name+'-G')
 
         descending_sorted_idx = np.argsort(dimensions)[::-1]
         A_ranks = {}
@@ -651,7 +651,7 @@ class KFAC(optim.Optimizer):
             #if hvd.rank() == 0:
             #    print('dimension: %d, bcast_time: %f, inverse_time: %f' % (dimension, bcast_time, inverse_time))
 
-            if dimension < 1024:
+            if dimension < 0:
             #if dimension < 0:
             #if inverse_time < bcast_time: 
                 bi = -1
@@ -661,7 +661,7 @@ class KFAC(optim.Optimizer):
             if factor[-1] == 'A':
                 dimension_A += dimension #* dimension
                 A_ranks[m] = (bi,)
-                #G_ranks[m] = (bi,)
+                G_ranks[m] = (bi,)
             else:
                 dimension_G += dimension #* dimension
                 G_ranks[m] = (bi,)

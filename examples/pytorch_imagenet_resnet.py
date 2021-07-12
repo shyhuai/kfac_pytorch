@@ -183,7 +183,7 @@ def initialize():
     #logfilename = 'convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
     logfilename = 'ic2021_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
     if TEST_SPEED:
-        logfilename = 'SPEED_V2_'+logfilename
+        logfilename = 'SPEED_V3_'+logfilename
         logfilename = 'RDMA%d_'%int(RDMA)+logfilename
         #logfilename = 'DEBUG_'+logfilename
 
