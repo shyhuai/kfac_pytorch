@@ -1,2 +1,3 @@
 #HOROVOD_NCCL_HOME=/home/esetstore/downloads/nccl_2.4.7-1+cuda10.1_x86_64 HOROVOD_GPU_OPERATIONS=NCCL HOROVOD_GPU_BROADCAST=NCCL  HOROVOD_GPU_ALLREDUCE=NCCL pip install --no-cache-dir horovod-0.19.2.tar.gz
-HOROVOD_NCCL_HOME=/home/esetstore/downloads/nccl_2.6.4-1+cuda10.1_x86_64 HOROVOD_GPU_BROADCAST=NCCL HOROVOD_GPU_ALLGATHER=NCCL HOROVOD_GPU_ALLREDUCE=NCCL pip install --no-cache-dir horovod==0.21.0
+#HOROVOD_NCCL_HOME=/home/esetstore/downloads/nccl_2.6.4-1+cuda10.1_x86_64 HOROVOD_GPU_BROADCAST=NCCL HOROVOD_GPU_ALLGATHER=NCCL HOROVOD_GPU_ALLREDUCE=NCCL pip install --no-cache-dir horovod==0.21.0
+HOROVOD_NCCL_HOME=/home/shaohuais/downloads/nccl_2.8.3-1+cuda10.2_x86_64 HOROVOD_GPU_BROADCAST=NCCL HOROVOD_GPU_ALLGATHER=NCCL HOROVOD_GPU_ALLREDUCE=NCCL pip install --no-cache-dir horovod==0.21.0

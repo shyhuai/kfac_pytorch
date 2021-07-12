@@ -134,7 +134,7 @@ class KFAC(optim.Optimizer):
 
         self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=False, fp16=False)
         self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=False, fp16=False)
-        self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
+        self.multi_comm = MultiTensorComm(symmetric=False, fp16=False)
 
         # Dictionaries keyed by `module` to storing the factors and
         # eigendecompositions
@@ -542,11 +542,11 @@ class KFAC(optim.Optimizer):
         for i, m in enumerate(self.modules):
             name = self.module_names[i]
             a_dimension = self.m_A[m].shape[1]
-            g_dimension = self.m_G[m].shape[1]
+            #g_dimension = self.m_G[m].shape[1]
             dimensions.append(a_dimension)
             module_factors.append(name+'-A')
-            dimensions.append(g_dimension)
-            module_factors.append(name+'-G')
+            #dimensions.append(g_dimension)
+            #module_factors.append(name+'-G')
 
         descending_sorted_idx = np.argsort(dimensions)[::-1]
         A_ranks = {}
@@ -561,6 +561,7 @@ class KFAC(optim.Optimizer):
             buckets[bi] += dimension
             if factor[-1] == 'A':
                 A_ranks[m] = (bi,)
+                G_ranks[m] = (bi,)
             else:
                 G_ranks[m] = (bi,)
         for m in self.modules:

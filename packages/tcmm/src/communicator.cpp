@@ -2,9 +2,9 @@
 #include "communicator.h"
 
 
-Communicator::Communicator(int rank, int size):m_rank(rank), m_size(size) {
+Communicator::Communicator(int rank, int size, int nstreams=1):m_rank(rank), m_size(size) {
     m_current_comm = 0;
-    m_num_comms = 1;
+    m_num_comms = nstreams;
 
     m_nccl_ids = new ncclUniqueId[1000];
     m_streams = new cudaStream_t[1000];
@@ -60,7 +60,15 @@ void Communicator::synchronize() {
 //}
 
 void Communicator::allReduce(torch::Tensor tensor) {
-    NCCLCHECK(ncclAllReduce(tensor.data_ptr<float>(), tensor.data_ptr<float>(), tensor.numel(), ncclFloat, ncclSum, m_nccl_comms[0], m_streams[0]));
+    NCCLCHECK(ncclAllReduce(tensor.data_ptr<float>(), tensor.data_ptr<float>(), tensor.numel(), ncclFloat, ncclSum, m_nccl_comms[m_current_comm], m_streams[m_current_comm]));
+    m_current_comm++;
+    m_current_comm %= m_num_comms;
+}
+
+void Communicator::reduce(torch::Tensor tensor, int root) {
+    NCCLCHECK(ncclReduce(tensor.data_ptr<float>(), tensor.data_ptr<float>(), tensor.numel(), ncclFloat, ncclSum, root, m_nccl_comms[m_current_comm], m_streams[m_current_comm]));
+    m_current_comm++;
+    m_current_comm %= m_num_comms;
 }
 
 //void Communicator::multiBcast(vector<torch::Tensor> &tensor_list, void (*op)(torch::Tensor)) {

@@ -37,10 +37,13 @@ import kfac
 import inceptionv4
 import wandb
 
-os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '10' 
+os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '1' 
+os.environ['HOROVOD_FUSION_THRESHOLD'] = '0'
 #os.environ['HOROVOD_NUM_NCCL_STREAMS'] = '2' 
 #os.environ['HOROVOD_CYCLE_TIME'] = '0'
-#os.environ['HOROVOD_FUSION_THRESHOLD'] = '0'
+TEST_SPEED = False
+if TEST_SPEED: 
+    wandb = False
 
 STEP_FIRST = LooseVersion(torch.__version__) < LooseVersion('1.1.0')
 
@@ -175,9 +178,12 @@ def initialize():
     except ImportError:
         args.log_writer = None
 
-    logfilename = 'convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
+    #logfilename = 'convergence_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
+    logfilename = 'ic2021_imagenet_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio)
+    if TEST_SPEED:
+        logfilename = 'SPEED_'+logfilename
 
-    if hvd.rank() == 0:
+    if hvd.rank() == 0 and wandb:
         wandb.init(project='kfac', entity='hkust-distributedml', name=logfilename, config=args)
 
     logfile = './logs/'+logfilename
@@ -385,10 +391,9 @@ def train(epoch, model, optimizer, preconditioner, lr_schedules, lrs,
                     logger.info('Profiling: IO: %.3f, FW+BW: %.3f, COMM: %.3f, KFAC: %.3f, STEP: %.3f', np.mean(iotimes), np.mean(fwbwtimes), np.mean(commtimes), np.mean(kfactimes), np.mean(uptimes))
                     iotimes = [];fwbwtimes=[];kfactimes=[];commtimes=[]
                 avg_time = 0.0
-            if batch_idx > 510:
-                break
-        logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
-        if hvd.rank() == 0:
+        if args.verbose:
+            logger.info("[%d] epoch train loss: %.4f, acc: %.3f" % (epoch, train_loss.avg.item(), 100*train_accuracy.avg.item()))
+        if hvd.rank() == 0 and wandb:
             wandb.log({"loss": train_loss.avg.item(), "epoch": epoch})
 
     if not STEP_FIRST:
@@ -419,7 +424,7 @@ def validate(epoch, model, loss_func, val_loader, args):
                 val_accuracy.update(accuracy(output, target))
             if args.verbose:
                 logger.info("[%d][0] evaluation loss: %.4f, acc: %.3f" % (epoch, val_loss.avg.item(), 100*val_accuracy.avg.item()))
-                if hvd.rank() == 0:
+                if hvd.rank() == 0 and wandb:
                     wandb.log({"val top-1 acc": val_accuracy.avg.item(), "epoch": epoch})
 
                 #t.update(1)
@@ -448,6 +453,8 @@ if __name__ == '__main__':
     for epoch in range(args.resume_from_epoch, args.epochs):
         train(epoch, model, opt, preconditioner, lr_schedules, lrs,
              loss_func, train_sampler, train_loader, args)
+        if TEST_SPEED:
+            break
         validate(epoch, model, loss_func, val_loader, args)
         #save_checkpoint(model, opt, args.checkpoint_format, epoch)
 

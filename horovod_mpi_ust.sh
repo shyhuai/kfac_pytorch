@@ -4,14 +4,14 @@ dnn="${dnn:-resnet50}"
 nworkers="${nworkers:-8}"
 batch_size="${batch_size:-32}"
 rdma="${rdma:-1}"
-kfac="${kfac:-1}"
+kfac="${kfac:-0}"
 lr="${lr:-0.1}"
 sparse_ratio="${sparse_ratio:-1}"
 epochs="${epochs:-55}"
 kfac_name="${kfac_name:-inverse}"
 damping="${damping:-0.003}"
 exclude_parts="${exclude_parts:-''}"
-gpuids="${gpuids:-0,1,2,3}"
+gpuids="${gpuids:-1,2,3,4,5,6,7,8}"
 
 MPIPATH=/home/shaohuais/.local/openmpi-4.0.3
 PY=/home/shaohuais/pytorch1.4/bin/python
@@ -22,16 +22,23 @@ params="-mca pml ob1 -mca btl ^openib \
     -x NCCL_DEBUG=INFO \
     -x NCCL_SOCKET_IFNAME=bond0 \
     -x NCCL_IB_DISABLE=1 \
+    -x CUDA_VISIBLE_DEVICES=${gpuids} \
     -x HOROVOD_CACHE_CAPACITY=0"
 else
-params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
-    -mca btl_tcp_if_include ib0 \
-    --mca btl_openib_want_fork_support 1 \
-    -x LD_LIBRARY_PATH  \
-    -x NCCL_IB_DISABLE=0 \
-    -x NCCL_SOCKET_IFNAME=ib0 \
+#params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
+#    -mca btl_tcp_if_include ib0 \
+#    --mca btl_openib_want_fork_support 1 \
+#    -x LD_LIBRARY_PATH  \
+#    -x NCCL_IB_DISABLE=0 \
+#    -x NCCL_SOCKET_IFNAME=ib0 \
+#    -x NCCL_DEBUG=INFO \
+#    -x CUDA_VISIBLE_DEVICES=${gpuids} \
+#    -x HOROVOD_CACHE_CAPACITY=0"
+params="-x LD_LIBRARY_PATH \
     -x NCCL_DEBUG=INFO \
+    -x CUDA_VISIBLE_DEVICES=${gpuids} \
     -x HOROVOD_CACHE_CAPACITY=0"
+
 fi
 
 if [ "$dnn" = "resnet32" ]; then

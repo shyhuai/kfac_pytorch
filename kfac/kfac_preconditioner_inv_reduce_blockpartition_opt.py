@@ -3,15 +3,16 @@ import torch
 import torch.optim as optim
 import horovod.torch as hvd
 import numpy as np
-#from horovod.torch.mpi_ops import allgather_async
+from horovod.torch.mpi_ops import allgather_async
 
 from kfac.utils import (ComputeA, ComputeG)
 from kfac.utils import update_running_avg
 from kfac.utils import try_contiguous
 from kfac.utils import cycle
 from kfac.utils import get_block_boundary
-from kfac.utils import sparsification, sparsification_randk, fake_sparsification
-from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier
+from kfac.utils import sparsification
+from kfac.utils import get_optimal_block_partition
+from kfac.comm import MergedCommAllReduce, MergedCommBcast, MultiTensorComm, barrier, MergedCommReduce, NUM_NEARBY_LAYERS
 import logging
 import tcmm
 import torchsso
@@ -26,6 +27,8 @@ def add_value_to_diagonal(X, value):
     #    indices = torch.LongTensor([[i, i] for i in range(X.shape[0])])
     #values = X.new_ones(X.shape[0]).mul(value)
     #return X.index_put(tuple(indices.t()), values, accumulate=True)
+
+REDUCE_THRESHOLD=0
 
 class KFAC(optim.Optimizer):
     """KFAC Distributed Gradient Preconditioner
@@ -86,7 +89,7 @@ class KFAC(optim.Optimizer):
                  diag_blocks=1,
                  diag_warmup=0,
                  distribute_layer_factors=None,
-                 sparse=True,
+                 sparse=False,
                  sparse_ratio=0.01,
                  exclude_parts=''):
                  #exclude_parts='CommunicateInverse,ComputeInverse,CommunicateFactor,ComputeFactor'):
@@ -128,29 +131,31 @@ class KFAC(optim.Optimizer):
         self.fw_factor_handles = []
         self.bw_factor_handles = []
         self.module_name_map = {}
+        self.reduce_module_names = []
         self._register_modules(model)
 
         self.steps = 0
-
-        self.fw_merged_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
-        self.bw_merged_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        merge = NUM_NEARBY_LAYERS > 1
+        self.fw_merged_comm = MergedCommReduce(tensor_names=None, prefix='forward', merge=True, single_layer=False, symmetric=True, fp16=False)
+        self.bw_merged_comm = MergedCommReduce(tensor_names=None, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.fw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='forward', merge=False, single_layer=False, symmetric=True, fp16=False)
+        self.bw_allreduce_comm = MergedCommAllReduce(self.module_names, prefix='backward', merge=False, single_layer=False, symmetric=True, fp16=False)
         self.multi_comm = MultiTensorComm(symmetric=True, fp16=False)
 
         # Dictionaries keyed by `module` to storing the factors and
         # eigendecompositions
         self.m_a, self.m_g = {}, {}
         self.m_A, self.m_G = {}, {}
-        self.m_sparseA, self.m_sparseG = {}, {}
         self.m_QA, self.m_QG = {}, {}
         self.m_dA, self.m_dG = {}, {}
         self.m_dA_ranks = {}
         self.m_dG_ranks = {}
         self.module_ranks = None
+        self.eigen_ranks = None
 
         self.sparse = sparse
         self.sparse_ratio = sparse_ratio
-        #self.residualsA, self.residualsG = {}, {}
-        self.residualsA, self.residualsG = None, None
+        self.residualsA, self.residualsG = {}, {}
 
         self.factor_decay = factor_decay
         self.kl_clip = kl_clip
@@ -177,25 +182,39 @@ class KFAC(optim.Optimizer):
         self.eps = 1e-10  # for numerical stability
         self.rank_iter = cycle(list(range(hvd.size())))
 
-    def _save_input(self, module, input):
-        """Hook for saving layer input"""
-        if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
-            self.m_a[module] = input[0].data
-
     def _compute_forward_factor(self, module, input):
         if torch.is_grad_enabled() and self.steps % self.fac_update_freq == 0:
             self.m_a[module] = input[0].data
-            self._update_module_A(module)
-
-    def _save_grad_output(self, module, grad_input, grad_output):
-        """Hook for saving gradient w.r.t output"""
-        if self.steps % self.fac_update_freq == 0:
-            self.m_g[module] = grad_output[0].data
+            if not self.exclude_compute_factor:
+                self._update_module_A(module)
+            if not self.exclude_communicate_factor:
+                if hvd.size() > 1:
+                    name = self.module_name_map[module]
+                    if self.eigen_ranks is not None:
+                        ranks_a, ranks_g = self.eigen_ranks[module]
+                        rank_a = ranks_a[0]
+                        if self.m_A[module].shape[1] > REDUCE_THRESHOLD:
+                            self.fw_merged_comm.reduce_async_(name, self.m_A[module].data, rank_a)
+                        else:
+                            self.fw_allreduce_comm.allreduce_async_(name, self.m_A[module].data)
 
     def _compute_backward_factor(self, module, grad_input, grad_output):
         if self.steps % self.fac_update_freq == 0:
             self.m_g[module] = grad_output[0].data
-            self._update_module_G(module)
+
+            if not self.exclude_compute_factor:
+                self._update_module_G(module)
+            if not self.exclude_communicate_factor:
+                if hvd.size() > 1:
+                    name = self.module_name_map[module]
+                    if self.eigen_ranks is not None:
+                        ranks_a, ranks_g = self.eigen_ranks[module]
+                        rank_g = ranks_g[0]
+                        if self.m_A[module].shape[1] > REDUCE_THRESHOLD:
+                            self.bw_merged_comm.reduce_async_(name, self.m_G[module].data, rank_g)
+                        else:
+                            self.bw_allreduce_comm.allreduce_async_(name, self.m_G[module].data)
+                            #self.bw_allreduce_handlers.append(hvd.allreduce_async_(self.m_G[module].data, op=hvd.Average))
 
     def _register_modules(self, model):
         """Register hooks to all supported layers in the model"""
@@ -204,8 +223,8 @@ class KFAC(optim.Optimizer):
             classname = module.__class__.__name__
             if classname in self.known_modules:
                 self.modules.append(module)
-                module.register_forward_pre_hook(self._save_input)
-                module.register_backward_hook(self._save_grad_output)
+                module.register_forward_pre_hook(self._compute_forward_factor)
+                module.register_backward_hook(self._compute_backward_factor)
                 module_name = 'module_name_%s_%d' % (classname, name_idx)
                 self.module_names.append(module_name)
                 self.module_name_map[module] = module_name
@@ -242,22 +261,12 @@ class KFAC(optim.Optimizer):
             self._init_A(a, module)
         update_running_avg(a, self.m_A[module], self.factor_decay)
         if self.sparse:
-            #self.m_sparseA[module] = sparsification_randk(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
-            #self.m_sparseA[module] = sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
-            self.m_sparseA[module] = fake_sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
+            sparsification(self.m_A[module], module, ratio=self.sparse_ratio, residuals=self.residualsA)
 
     def _update_A(self):
         """Compute and update factor A for all modules"""
         for module in self.modules: 
             self._update_module_A(module)
-            #if hvd.rank() == 0:
-            #    data = self.m_A[module] #ComputeA.get_data(self.m_a[module], module)
-            #    d = data.view(-1)
-            #    indexes = d.nonzero().data.squeeze().view(-1)
-            #    nnz = indexes.numel() 
-            #    numel = d.numel()
-            #    sparsity = (numel-nnz)*1.0/numel
-            #    logger.info('vector A name: %s, shape: %s, sparsity: %f', module, data.shape, sparsity)
 
     def _update_module_G(self, module):
         g = self.computeG(self.m_g[module], module, self.batch_averaged)
@@ -266,24 +275,12 @@ class KFAC(optim.Optimizer):
             self._init_G(g, module)
         update_running_avg(g, self.m_G[module], self.factor_decay)
         if self.sparse:
-            #self.m_sparseG[module] = sparsification_randk(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
-            #self.m_sparseG[module] = sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
-            self.m_sparseG[module] = fake_sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
+            sparsification(self.m_G[module], module, ratio=self.sparse_ratio, residuals=self.residualsG)
 
     def _update_G(self):
         """Compute and update factor G for all modules"""
         for module in self.modules:
             self._update_module_G(module)
-
-            #if hvd.rank() == 0:
-            #    data = self.m_G[module] #ComputeG.get_data(self.m_g[module], module, self.batch_averaged)
-            #    d = data.view(-1)
-            #    indexes = d.nonzero().data.squeeze().view(-1)
-            #    nnz = indexes.numel() 
-            #    numel = d.numel()
-            #    sparsity = (numel-nnz)*1.0/numel
-            #    logger.info('vector G name: %s, shape: %s, sparsity: %f', module, data.shape, sparsity)
-
 
     def _update_eigen_A(self, module, ranks):
         """Compute eigendecomposition of A for module on specified workers
@@ -304,8 +301,16 @@ class KFAC(optim.Optimizer):
             self._distributed_compute_eigen(self.m_A[module], 
                     self.m_QA[module], self.m_dA[module], ranks)
         else:
-            self.m_QA[module].fill_(0)
-            self.m_dA[module].fill_(0)
+            if ranks[0] == -1:
+                self._local_computer_inverse(self.m_A[module], self.m_QA[module])
+            else:
+                self.m_QA[module].fill_(0)
+
+    def _local_computer_inverse(self, factor, inverse):
+        block = factor[0:, 0:]
+        block = add_value_to_diagonal(block, self.damping)
+        inv = torchsso.utils.inv(block)
+        inverse.data[0:, 0:].copy_(inv)
 
     def _update_eigen_G(self, module, ranks):
         """Compute eigendecomposition of A for module on specified workers
@@ -316,8 +321,10 @@ class KFAC(optim.Optimizer):
             self._distributed_compute_eigen(self.m_G[module], 
                     self.m_QG[module], self.m_dG[module], ranks)
         else:
-            self.m_QG[module].fill_(0)
-            self.m_dG[module].fill_(0)
+            if ranks[0] == -1:
+                self._local_computer_inverse(self.m_G[module], self.m_QG[module])
+            else:
+                self.m_QG[module].fill_(0)
 
     def _distributed_compute_eigen(self, factor, evectors, evalues, ranks):
         """Computes the eigendecomposition of a factor across ranks
@@ -388,11 +395,7 @@ class KFAC(optim.Optimizer):
           preconditioned gradient with same shape as `grad`
         """
         #v = self.m_QG[module].t() @ grad @ self.m_QA[module]
-        if torch.any(torch.isnan(self.m_QG[module])) or torch.any(torch.isnan(self.m_QA[module])):
-            v = grad
-        else:
-            v = self.m_QG[module] @ grad @ self.m_QA[module]
-        #v = self.m_QG[module] @ grad @ self.m_QA[module]
+        v = self.m_QG[module] @ grad @ self.m_QA[module]
 
         if module.bias is not None:
             v = [v[:, :-1], v[:, -1:]]
@@ -464,15 +467,30 @@ class KFAC(optim.Optimizer):
             diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
 
         if self.steps % self.fac_update_freq == 0:
-            if not self.exclude_compute_factor:
-                self._update_A()
-                self._update_G()
-            if not self.exclude_communicate_factor:
-                if hvd.size() > 1:
-                    if self.sparse:
-                        self._allgather_factors()
-                    else:
-                        self._allreduce_factors()
+
+            if self.eigen_ranks is None:
+                if not self.exclude_compute_factor:
+                    self._update_A()
+                    self._update_G()
+                self.eigen_ranks, fusion_groups = self._generate_eigen_ranks_blockpartition_opt(epoch)
+                if not self.exclude_communicate_factor:
+                    if hvd.size() > 1:
+                        self._reduce_factors(self.eigen_ranks)
+                self.fw_merged_comm.init_tensor_group(self.reduce_module_names)
+                self.bw_merged_comm.init_tensor_group(self.reduce_module_names[::-1])
+                if hvd.rank() == 0:
+                    print('module_names: ', self.module_names)
+                    print('fusion_groups: ', fusion_groups)
+
+                self.fw_merged_comm.update_tensor_fusion(fusion_groups)
+            else: # starting from the 2nd iteration
+                if not self.exclude_communicate_factor:
+                    if hvd.size() > 1:
+                        self.fw_merged_comm.synchronize()
+                        self.bw_merged_comm.synchronize()
+                        self.fw_allreduce_comm.synchronize()
+                        self.bw_allreduce_comm.synchronize()
+            eigen_ranks = self.eigen_ranks
 
         # if we are switching from no diag approx to approx, we need to clear
         # off-block-diagonal elements
@@ -488,28 +506,42 @@ class KFAC(optim.Optimizer):
             self.rank_iter.reset() 
             handles = []
 
-            eigen_ranks = self._generate_eigen_ranks(epoch)
-            #eigen_ranks = self._generate_eigen_ranks_uniform(epoch)
-            #eigen_ranks = self._generate_eigen_ranks_naive(epoch)
-
-            for module in self.modules:
+            merged_name_AGs = [[]]*hvd.size()
+            merged_tensor_AGs = [[]]*hvd.size()
+            for i, module in enumerate(self.modules):
                 ranks_a, ranks_g = eigen_ranks[module]
                 self.m_dA_ranks[module] = ranks_a[0]
                 self.m_dG_ranks[module] = ranks_g[0]
                 rank_a = ranks_a[0]
                 rank_g = ranks_g[0]
+                name = self.module_name_map[module]
 
                 if not self.exclude_compute_inverse:
                     self._update_eigen_A(module, ranks_a)
+
+                if not self.exclude_compute_inverse:
                     self._update_eigen_G(module, ranks_g)
+
+                merged_name_AGs[rank_a].append(name+'-A')
+                merged_name_AGs[rank_g].append(name+'-G')
+                merged_tensor_AGs[rank_a].append(self.m_QA[module])
+                merged_tensor_AGs[rank_g].append(self.m_QG[module])
 
             if not self.exclude_communicate_inverse:
                 if hvd.size() > 1:
+                    #for rank, names in enumerate(merged_name_AGs):
+                    #    merged_names = merged_name_AGs[rank]
+                    #    merged_tensors = merged_tensor_AGs[rank]
+                    #    self.multi_comm.bcast_async_(merged_names, merged_tensors, rank)
                     self._broadcast_eigendecomp()
-            elif not self.exclude_compute_inverse:
+
+            if self.exclude_communicate_inverse and not self.exclude_compute_inverse:
                 # should have a barriar
                 if hvd.size() > 1:
                     barrier()
+
+        if hvd.size() > 1 and self.steps % self.kfac_update_freq == 0:
+            self.multi_comm.synchronize()
 
         for i, module in enumerate(self.modules):
             grad = self._get_grad(module)
@@ -519,6 +551,7 @@ class KFAC(optim.Optimizer):
         self._update_scale_grad(updates)
 
         self.steps += 1
+
 
     def _generate_eigen_ranks_naive(self, epoch):
         if self.module_ranks is not None:
@@ -537,9 +570,111 @@ class KFAC(optim.Optimizer):
             buckets[ranks_g[0]] += self.m_G[module].shape[1]
         self.module_ranks = module_ranks
         if hvd.rank() == 0:
+            #logger.info('buckets: %s', buckets)
+            #logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
+        return module_ranks
+
+    def _generate_eigen_ranks_match_merging(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        assigned_rank = 0
+        assigned_count = 0
+        #print('nfactors: ', len(self.modules))
+        buckets = [0] * hvd.size()
+        BIs = []
+        for i, module in enumerate(self.modules):
+            # Get ranks to compute this layer on
+            name = self.module_name_map[module]
+            a_dimension = self.m_A[module].shape[1]
+            g_dimension = self.m_G[module].shape[1]
+            if a_dimension > REDUCE_THRESHOLD:
+                self.reduce_module_names.append(name)
+                rank = assigned_rank
+                assigned_count += 1
+            else:
+                rank = -1
+            ranks_a = (rank, ) 
+            ranks_g = (rank, ) 
+            module_ranks[module] = (ranks_a, ranks_g)
+            buckets[rank] += (a_dimension+g_dimension)
+            BIs.append(rank)
+            if assigned_count > 0 and assigned_count % NUM_NEARBY_LAYERS== 0:
+                assigned_rank += 1
+                assigned_rank %= hvd.size()
+        self.module_ranks = module_ranks
+        if hvd.rank() == 0:
+            logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
+            logger.info('BIs: %s', BIs)
+
+        return module_ranks
+
+    def _generate_eigen_ranks_blockpartition_opt(self, epoch):
+        if self.module_ranks is not None:
+            return self.module_ranks
+        module_ranks = {}
+        diag_blocks = self.diag_blocks if epoch >= self.diag_warmup else 1
+        target_ranks = np.arange(hvd.size())
+
+        buckets = [0] * hvd.size()
+        dimensions = []
+        module_factors = []
+        factors = []
+        for i, m in enumerate(self.modules):
+            name = self.module_names[i]
+            a_dimension = self.m_A[m].shape[1]
+            dimensions.append(a_dimension)
+            module_factors.append(name+'-A')
+            factors.append(m)
+
+            g_dimension = self.m_G[m].shape[1]
+            dimensions.append(g_dimension)
+            module_factors.append(name+'-G')
+            factors.append(m)
+
+        placement = get_optimal_block_partition(len(factors), hvd.size(), dimensions)
+        A_ranks = {}
+        G_ranks = {}
+        buckets = [0] * hvd.size()
+        for i, p in enumerate(placement):
+            AorG = factors[i]
+            factor = module_factors[i]
+            if factor[-1] == 'A':
+                A_ranks[AorG] = (p,)
+                dimension = self.m_A[AorG].shape[1]
+            else:
+                G_ranks[AorG] = (p,)
+                dimension = self.m_G[AorG].shape[1]
+            buckets[p] += dimension
+
+        for m in self.modules:
+            module_ranks[m] = (A_ranks[m], G_ranks[m])
+
+        self.module_ranks = module_ranks
+
+        tensor_names_As = []
+        tensor_names_Gs = []
+        c_rank = A_ranks[factors[0]]
+        current_group = []
+        tensor_names_As.append(current_group)
+        for i, name in enumerate(self.module_names):
+            m = factors[i]
+            a_rank = A_ranks[m][0]
+            if a_rank != c_rank:
+                current_group = []
+                tensor_names_As.append(current_group)
+            current_group.append(name)
+            c_rank = a_rank
+
+        if hvd.rank() == 0:
+            logger.info('placement: %s', placement)
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
-        return module_ranks
+            logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
+        return module_ranks, tensor_names_As
+
 
     def _generate_eigen_ranks_uniform(self, epoch):
         if self.module_ranks is not None:
@@ -552,15 +687,16 @@ class KFAC(optim.Optimizer):
         for i, m in enumerate(self.modules):
             name = self.module_names[i]
             a_dimension = self.m_A[m].shape[1]
-            g_dimension = self.m_G[m].shape[1]
+            #g_dimension = self.m_G[m].shape[1]
             dimensions.append(a_dimension)
             module_factors.append(name+'-A')
-            dimensions.append(g_dimension)
-            module_factors.append(name+'-G')
+            #dimensions.append(g_dimension)
+            #module_factors.append(name+'-G')
 
         descending_sorted_idx = np.argsort(dimensions)[::-1]
         A_ranks = {}
         G_ranks = {}
+        BIs = []
         for i in descending_sorted_idx:
             factor = module_factors[i]
             dimension = dimensions[i]
@@ -568,9 +704,11 @@ class KFAC(optim.Optimizer):
             m = self.modules[m_i]
 
             bi = np.argmin(buckets)
+            BIs.append(bi)
             buckets[bi] += dimension
             if factor[-1] == 'A':
                 A_ranks[m] = (bi,)
+                G_ranks[m] = (bi,)
             else:
                 G_ranks[m] = (bi,)
         for m in self.modules:
@@ -580,6 +718,8 @@ class KFAC(optim.Optimizer):
         if hvd.rank() == 0:
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
+            logger.info('BIs: %s', BIs)
         return module_ranks
 
     def _generate_eigen_ranks(self, epoch):
@@ -608,26 +748,30 @@ class KFAC(optim.Optimizer):
         if hvd.rank() == 0:
             logger.info('buckets: %s', buckets)
             logger.info('module_ranks: %s', module_ranks.values())
+            logger.info('buckets mean: %f, std: %f, max: %f, min: %f, max-min=%f', np.mean(buckets), np.std(buckets), np.max(buckets), np.min(buckets), np.max(buckets)-np.min(buckets))
         return module_ranks
 
-    def _allreduce_factors(self):
+    def _reduce_factors(self, eigen_ranks):
         """Allreduce the factors for all layers"""
         handles = []
 
         for m in self.modules:
             name = self.module_name_map[m]
-            self.fw_merged_comm.allreduce_async_(name, self.m_A[m].data)
-            self.bw_merged_comm.allreduce_async_(name, self.m_G[m].data)
+            ranks_a, ranks_g = eigen_ranks[m]
+            rank_a = ranks_a[0]
+            rank_g = ranks_g[0]
+            handles.append(hvd.allreduce_async_(self.m_A[m].data, op=hvd.Average))
+            handles.append(hvd.allreduce_async_(self.m_G[m].data, op=hvd.Average))
 
-        self.fw_merged_comm.synchronize()
-        self.bw_merged_comm.synchronize()
+        for handle in handles:
+            hvd.synchronize(handle)
 
     def _allgather_factors(self):
         """Allgather the factors for all layers"""
         handles = []
         def _get_value_and_idx(sparse_tensor):
             tensor = sparse_tensor.data.view(-1)
-            one_indexes = tensor != 0.0
+            one_indexes = tensor != 0
             indexes = one_indexes.nonzero().data.squeeze().view(-1)
             values = tensor.data[indexes] 
             return values, indexes.int()
@@ -635,34 +779,18 @@ class KFAC(optim.Optimizer):
         for i, m in enumerate(self.modules):
             module_name = self.module_names[i]
 
-            A_values, A_indexes = self.m_sparseA[m] #_get_value_and_idx(self.m_A[m].data)
-            if A_values.numel() == 0:
-                continue
+            A_values, A_indexes = _get_value_and_idx(self.m_A[m].data)
             A_value_name = module_name + '_A_value'
             A_idx_name = module_name + '_A_idx'
-            #h_value = hvd.allgather_async(A_values, A_value_name)
-            #h_idx = hvd.allgather_async(A_indexes, A_idx_name)
-            h_value = hvd.allgather_async(A_values)
-            h_idx = hvd.allgather_async(A_indexes)
+            h_value = allgather_async(A_values, A_value_name)
+            h_idx = allgather_async(A_indexes, A_idx_name)
 
-            G_values, G_indexes = self.m_sparseG[m] #_get_value_and_idx(self.m_G[m].data)
+            G_values, G_indexes = _get_value_and_idx(self.m_G[m].data)
             G_value_name = module_name + '_G_value'
             G_idx_name = module_name + '_G_idx'
-            #h_value_G = hvd.allgather_async(G_values, G_value_name)
-            #h_idx_G = hvd.allgather_async(G_indexes, G_idx_name)
-            if G_values is not None and G_values.numel() > 0:
-                h_value_G = hvd.allgather_async(G_values)
-                h_idx_G = hvd.allgather_async(G_indexes)
-                handles.append((h_value, h_idx, h_value_G, h_idx_G))
-
-        num_of_workers = hvd.size()
-        def _decompress(values, indices, output):
-            numel = indices.numel()
-            real_num_values = numel//num_of_workers
-            for i in range(num_of_workers):
-                tmp_values = values.data[i*real_num_values:(i+1)*real_num_values]
-                tmp_indices = indices.data[i*real_num_values:(i+1)*real_num_values]
-                output[tmp_indices] += tmp_values
+            h_value_G = allgather_async(G_values, G_value_name)
+            h_idx_G = allgather_async(G_indexes, G_idx_name)
+            handles.append((h_value, h_idx, h_value_G, h_idx_G))
 
         for i, handle in enumerate(handles):
             module_name = self.module_names[i]
@@ -675,20 +803,13 @@ class KFAC(optim.Optimizer):
             h_value_A, h_idx_A, h_value_G, h_idx_G = handle
             A_values = hvd.synchronize(h_value_A)
             A_indexes = hvd.synchronize(h_idx_A).long()
-            _decompress(A_values, A_indexes, m_A)
-            #print(A_indexes[0])
-            #print(A_values[0])
-            #m_A.scatter_add_(0, A_indexes, A_values)
+            m_A.scatter_add_(0, A_indexes, A_values)
             m_A.div_(hvd.size())
             
             G_values = hvd.synchronize(h_value_G)
             G_indexes = hvd.synchronize(h_idx_G).long()
-            #print('G_I: ', G_indexes[0])
-            #print('G_V: ', G_values[0])
-            #m_G.scatter_add_(0, G_indexes, G_values)
-            _decompress(G_values, G_indexes, m_G)
+            m_G.scatter_add_(0, G_indexes, G_values)
             m_G.div_(hvd.size())
-
 
     def _allreduce_eigendecomp(self):
         """Allreduce the eigendecompositions for all layers
@@ -708,23 +829,6 @@ class KFAC(optim.Optimizer):
         for handle in handles:
             hvd.synchronize(handle)
 
-    def _broadcast_sparse_inv(self):
-        handles = []
-        rank = hvd.rank()
-
-        for i, m in enumerate(self.modules):
-            rank_a = self.m_dA_ranks[m]
-            rank_g = self.m_dG_ranks[m]
-            name = self.module_names[i]
-
-            h = hvd.broadcast_async_(self.m_QA[m], rank_a, name=name+'mQA')
-            handles.append(h)
-            h = hvd.broadcast_async_(self.m_QG[m], rank_g, name=name+'mQG')
-            handles.append(h)
-    
-        for handle in handles:
-            hvd.synchronize(handle)
-
     def _broadcast_eigendecomp(self):
         """Broadcasts the eigendecompositions for all layers
 
@@ -732,22 +836,17 @@ class KFAC(optim.Optimizer):
         either compute the eigendecomposition for a factor or just return
         zeros so we sum instead of averaging.
         """
-        handles = []
         rank = hvd.rank()
 
         for i, m in enumerate(self.modules):
             rank_a = self.m_dA_ranks[m]
             rank_g = self.m_dG_ranks[m]
             name = self.module_names[i]
-
-            h = hvd.broadcast_async_(self.m_QA[m], rank_a, name=name+'mQA')
-            handles.append(h)
-            h = hvd.broadcast_async_(self.m_QG[m], rank_g, name=name+'mQG')
-            handles.append(h)
-    
-        for handle in handles:
-            hvd.synchronize(handle)
-
+            if rank_a >= 0:
+                self.multi_comm.bcast_async_([name+'mQA'], [self.m_QA[m]], rank_a)
+            if rank_g >= 0:
+                self.multi_comm.bcast_async_([name+'mQG'], [self.m_QG[m]], rank_g)
+        self.multi_comm.synchronize()
     
 class KFACParamScheduler():
     """Updates KFAC parameters according to the epoch

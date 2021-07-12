@@ -20,7 +20,7 @@ PY=/home/esetstore/pytorch1.4/bin/python
 if [ "$rdma" = "0" ]; then
 params="-mca pml ob1 -mca btl ^openib \
     -mca btl_tcp_if_include 192.168.0.1/24 \
-    -x NCCL_DEBUG=INFO  \
+    -x NCCL_DEBUG=VERSION  \
     -x NCCL_SOCKET_IFNAME=enp136s0f0,enp137s0f0 \
     -x NCCL_IB_DISABLE=1 \
     -x HOROVOD_CACHE_CAPACITY=0 \
@@ -37,11 +37,11 @@ params="--mca pml ob1 --mca btl openib,vader,self --mca btl_openib_allow_ib 1 \
 fi
     #-x HOROVOD_FUSION_THRESHOLD=0 \
 
-if [ "$dnn" = "resnet32" ] || [ "$dnn" = "resnet56" ] || [ "$dnn" = "resnet110" ]; then
+if [ "$dnn" = "resnet20" ] || [ "$dnn" = "resnet32" ] || [ "$dnn" = "resnet56" ] || [ "$dnn" = "resnet110" ]; then
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \
     $params \
     $PY examples/pytorch_cifar10_resnet.py \
-        --base-lr $lr --epochs 100 --kfac-update-freq $kfac --model $dnn --lr-decay 35 75 90 --batch-size $batch_size --sparse-ratio $sparse_ratio --kfac-name $kfac_name --damping $damping --warmup-epochs 0
+        --base-lr $lr --epochs 100 --kfac-update-freq $kfac --model $dnn --lr-decay 35 75 90 --batch-size $batch_size --sparse-ratio $sparse_ratio --kfac-name $kfac_name --damping $damping --warmup-epochs 5 
 else
 #HOROVOD_TIMELINE=./logs/profile-timeline-${dnn}-kfac-${kfac}-json.log 
 $MPIPATH/bin/mpirun --oversubscribe --prefix $MPIPATH -np $nworkers -hostfile cluster${nworkers} -bind-to none -map-by slot \

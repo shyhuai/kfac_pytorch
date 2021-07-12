@@ -5,6 +5,7 @@ import tcmm
 import time
 import mpi4py
 import horovod.torch as hvd
+from kfac import comm
 torch.random.manual_seed(10)
 hvd.init()
 
@@ -44,32 +45,27 @@ def reduce():
     size = hvd.size()
     torch.cuda.set_device(local_rank)
     nstreams = 1
-    communicator = tcmm.Communicator(rank, size, nstreams)
-    n_elements = 32* 1024
-    iterations = 100
-    tensor = torch.rand(n_elements).cuda()
-    if rank == 0:
-        print('before rank: %d' % rank, time.time())
-    for i in range(nstreams):
-        communicator.reduce(tensor, 0)
-    #communicator.allReduce(tensor)
-    #hvd.allreduce(tensor)
+    #communicator = tcmm.Communicator(rank, size, nstreams)
+    communicator  = comm.MultiTensorReduce(symmetric=False)
+    communicator2  = comm.MultiTensorReduce(symmetric=True)
+    n_elements = 4
+    tensor = torch.rand(n_elements, 1).cuda()
+    tensor2 = torch.rand(n_elements, 1).cuda()
+    tensor = tensor @ tensor.t()
+    tensor2 = tensor2 @ tensor2.t()
+    tensor_copy = tensor.clone()
+    tensor2_copy = tensor2.clone()
+    communicator.reduce_async_(['t'], [tensor], 1)
+    communicator.reduce_async_(['t2'], [tensor2], 1)
+    communicator2.reduce_async_(['tcopy'], [tensor_copy], 1)
+    communicator2.reduce_async_(['tcopy2'], [tensor2_copy], 1)
     communicator.synchronize()
-    start = time.time()
-    previous = start
-    for i in range(iterations):
-        communicator.reduce(tensor, 0)
-        #communicator.allReduce(tensor)
-        #hvd.allreduce(tensor)
-        current = time.time()
-        if rank ==0:
-            print('i: ', i, current-previous)
-        previous = current
-    communicator.synchronize()
-    end = time.time()
-    if rank == 0:
-        print('after rank: %d' % rank, time.time(), (end-start)/iterations)
-        print('throughput: ', n_elements * 4 *1e-9/ ((end-start)/iterations), 'GB/s')
+    communicator2.synchronize()
+    #print('after rank: %d' % rank, tensor)
+    print('after rank copy: %d' % rank, tensor_copy)
+    print('diff copy: %d' % rank, torch.norm(tensor_copy-tensor))
+    print('diff copy 2: %d' % rank, torch.norm(tensor2_copy-tensor2))
+    
 
 if __name__ == '__main__':
     #allreduce()

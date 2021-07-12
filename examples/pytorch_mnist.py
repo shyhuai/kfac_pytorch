@@ -17,7 +17,8 @@ from torchvision import datasets, transforms, models
 #import torch.utils.data.distributed
 
 #from torchsummary import summary
-import cifar_resnet as resnet
+import fcn 
+import lenet
 #from tqdm import tqdm
 from utils import *
 
@@ -30,7 +31,7 @@ import wandb
 
 
 def main(args):
-    logfilename = 'convergence_cifar10_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}_wp{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio, args.warmup_epochs)
+    logfilename = 'convergence_mnist_{}_kfac{}_gpu{}_bs{}_{}_lr{}_sr{}_wp{}.log'.format(args.model, args.kfac_update_freq, hvd.size(), args.batch_size, args.kfac_name, args.base_lr, args.sparse_ratio, args.warmup_epochs)
     if hvd.rank() == 0:
         wandb.init(project='kfac', entity='hkust-distributedml', name=logfilename, config=args)
     
@@ -54,7 +55,7 @@ def main(args):
     torch.backends.cudnn.benchmark = True
     
     args.log_dir = os.path.join(args.log_dir, 
-                                "cifar10_{}_kfac{}_gpu_{}_{}".format(
+                                "mnist_{}_kfac{}_gpu_{}_{}".format(
                                 args.model, args.kfac_update_freq, hvd.size(),
                                 datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
     #os.makedirs(args.log_dir, exist_ok=True)
@@ -66,21 +67,22 @@ def main(args):
     
     kwargs = {'num_workers': 8, 'pin_memory': True} if args.cuda else {}
     
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
-    transform_test = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
+    transform_train = []
+    if args.model.lower() == 'lenet':
+        transform_train.append(transforms.Resize(32))
+
+    transform_train.extend([transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,))
+                ])
+    transform_train = transforms.Compose(transform_train)
+    transform_test = transform_train
     
     download = True if hvd.local_rank() == 0 else False
     if not download: hvd.allreduce(torch.tensor(1), name="barrier")
-    train_dataset = datasets.CIFAR10(root=args.dir, train=True, 
-                                     download=download, transform=transform_train)
-    test_dataset = datasets.CIFAR10(root=args.dir, train=False,
-                                    download=download, transform=transform_test)
+
+    train_dataset = torchvision.datasets.MNIST(root=self.dir, train=True, download=download, transform=transform_train)
+    test_dataset = torchvision.datasets.MNIST(root=args.dir, train=False, download=download, transform=transform_test)
+
     if download: hvd.allreduce(torch.tensor(1), name="barrier")
     
     # Horovod: use DistributedSampler to partition the training data.
@@ -97,18 +99,10 @@ def main(args):
     test_loader = torch.utils.data.DataLoader(test_dataset, 
             batch_size=args.test_batch_size, sampler=test_sampler, **kwargs)
     
-    
-    
-    if args.model.lower() == "resnet20":
-        model = resnet.resnet20()
-    elif args.model.lower() == "resnet32":
-        model = resnet.resnet32()
-    elif args.model.lower() == "resnet44":
-        model = resnet.resnet44()
-    elif args.model.lower() == "resnet56":
-        model = resnet.resnet56()
-    elif args.model.lower() == "resnet110":
-        model = resnet.resnet110()
+    if args.model.lower() == "fcn5net":
+        model = fcn.FCN5Net()
+    elif args.model.lower() == "lenet":
+        model = lenet.LeNet() 
     
     if args.cuda:
         model.cuda()
